@@ -980,8 +980,11 @@ function buildInvoiceForm(invoiceToEdit = null) {
     <div id="inv-totals-preview" class="gst-block"></div>
     <div class="modal-footer">
       <button class="btn" onclick="toggleForm('invoice-form')">Cancel</button>
-      <button class="btn" onclick="saveInvoice('Draft')">Save draft</button>
-      <button class="btn btn-primary" onclick="saveInvoice('Pending')">${invoiceToEdit ? 'Save Changes' : 'Send invoice'}</button>
+      ${(!invoiceToEdit || invoiceToEdit.status === 'Draft') 
+        ? `<button class="btn" onclick="saveInvoice('Draft')">${invoiceToEdit ? 'Update draft' : 'Save draft'}</button>
+           <button class="btn btn-primary" onclick="saveInvoice('Pending')">Send invoice</button>`
+        : `<button class="btn btn-primary" onclick="saveInvoice('${invoiceToEdit.status}')">Save Changes</button>`
+      }
     </div>
   </div></div>`;
   
