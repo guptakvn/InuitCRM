@@ -971,7 +971,7 @@ function buildInvoiceForm(invoiceToEdit = null) {
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">GST type</label>
-        <select id="if-gstt">
+        <select id="if-gstt" onchange="updateTotals()">
           <option>CGST + SGST (intra-state)</option>
           <option>IGST (inter-state)</option>
         </select>
@@ -1006,7 +1006,7 @@ function addLine(item = null) {
   const desc = item ? sanitize(item.desc || '') : '';
   const qty = item ? (item.qty || 1) : 1;
   const rate = item ? (item.rate || '') : '';
-  const gst = item ? (item.gst || 0) : 18;
+  const gst = 5;
   const amt = item ? ((item.qty || 0) * (item.rate || 0)).toFixed(2) : '';
 
   d.innerHTML = `
@@ -1014,11 +1014,7 @@ function addLine(item = null) {
     <input type="number" value="${qty}" id="il-q${i}" oninput="calcLine(${i})" style="text-align:right">
     <input type="number" placeholder="0" id="il-r${i}" value="${rate}" oninput="calcLine(${i})" style="text-align:right">
     <select id="il-g${i}" onchange="calcLine(${i})" style="padding:6px 4px;font-size:12px;background:var(--bg3)">
-      <option value="0" ${gst == 0 ? 'selected' : ''}>0%</option>
-      <option value="5" ${gst == 5 ? 'selected' : ''}>5%</option>
-      <option value="12" ${gst == 12 ? 'selected' : ''}>12%</option>
-      <option value="18" ${gst == 18 ? 'selected' : ''}>18%</option>
-      <option value="28" ${gst == 28 ? 'selected' : ''}>28%</option>
+      <option value="5" selected>5%</option>
     </select>
     <input type="number" readonly id="il-a${i}" value="${amt}" style="text-align:right;background:var(--bg4)">
     <button class="btn btn-sm btn-danger" onclick="delLine(${i})" style="padding:3px 6px">✕</button>`;
@@ -1055,9 +1051,22 @@ function updateTotals() {
     });
     const total = sub + gst_total;
     const preview = document.getElementById('inv-totals-preview');
+    const gstType = document.getElementById('if-gstt')?.value;
+    
+    let gstHtml = '';
+    if (gstType === 'IGST (inter-state)') {
+      gstHtml = `<div class="gst-row"><span>IGST @ 5%</span><span>${inr(gst_total)}</span></div>`;
+    } else {
+      const splitGst = gst_total / 2;
+      gstHtml = `
+        <div class="gst-row"><span>CGST @ 2.5%</span><span>${inr(splitGst)}</span></div>
+        <div class="gst-row"><span>SGST @ 2.5%</span><span>${inr(splitGst)}</span></div>
+      `;
+    }
+
     preview.innerHTML = `
       <div class="gst-row"><span>Subtotal</span><span>${inr(sub)}</span></div>
-      <div class="gst-row"><span>GST</span><span>${inr(gst_total)}</span></div>
+      ${gstHtml}
       <div class="gst-row total-row"><span>Total</span><span>${inr(total)}</span></div>`;
   } catch (err) {
     console.error('Update totals error:', err);
