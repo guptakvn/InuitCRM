@@ -37,7 +37,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .brand-name{font-size:15px;font-weight:600;letter-spacing:-0.3px}.brand-name span{color:var(--accent)}
 .brand-sub{font-size:10px;color:var(--text3);margin-top:2px;letter-spacing:0.5px;text-transform:uppercase}
 .nav{padding:10px 8px;flex:1}
-.nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--radius);cursor:pointer;color:var(--text2);font-size:13px;font-weight:400;margin-bottom:2px;transition:all 0.15s}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--radius);cursor:pointer;color:var(--text);font-size:13px;font-weight:500;margin-bottom:2px;transition:all 0.15s}
 .nav-item:hover{background:var(--bg3);color:var(--text)}
 .nav-item.active{background:rgba(108,99,255,0.15);color:var(--accent);font-weight:500}
 .nav-section{font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);padding:14px 10px 4px}
@@ -129,8 +129,8 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
 .form-error{font-size:11px;color:var(--danger);margin-top:3px;display:none}
 
 /* ── Invoice lines ── */
-.inv-line-hdr{display:grid;grid-template-columns:3fr 72px 100px 100px 32px;gap:8px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;padding:0 2px}
-.inv-line{display:grid;grid-template-columns:3fr 72px 100px 100px 32px;gap:8px;align-items:center;margin-bottom:7px}
+.inv-line-hdr{display:grid;grid-template-columns:3fr 60px 80px 60px 80px 32px;gap:8px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;padding:0 2px}
+.inv-line{display:grid;grid-template-columns:3fr 60px 80px 60px 80px 32px;gap:8px;align-items:center;margin-bottom:7px}
 .inv-line input{padding:6px 8px}
 .gst-block{background:var(--bg3);border-radius:var(--radius);padding:12px 14px;margin-top:10px;font-size:13px}
 .gst-row{display:flex;justify-content:space-between;padding:3px 0;color:var(--text2)}
@@ -191,7 +191,7 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
       <pre id="sql-block" style="display:none;margin-top:8px;background:var(--bg4);padding:10px;border-radius:6px;font-size:10px;overflow:auto;color:var(--info);line-height:1.6">
 create table leads (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, name text, contact text, value numeric default 0, stage text default 'New lead', notes text, created_at timestamp default now());
 create table contacts (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, name text, company text, phone text, email text, gst text, city text, created_at timestamp default now());
-create table invoices (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, number text, client text, date text, subtotal numeric default 0, gst_rate numeric default 18, gst_amt numeric default 0, total numeric default 0, status text default 'Draft', created_at timestamp default now());
+create table invoices (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, number text, client text, date text, subtotal numeric default 0, gst_rate numeric default 18, gst_amt numeric default 0, total numeric default 0, status text default 'Draft', items jsonb default '[]'::jsonb, created_at timestamp default now());
 create table expenses (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, description text, amount numeric default 0, category text, date text, created_at timestamp default now());
 alter table leads enable row level security;
 alter table contacts enable row level security;
@@ -336,6 +336,7 @@ const isConfigured = CONFIG.SUPABASE_URL !== 'YOUR_SUPABASE_URL' && CONFIG.SUPAB
 let sb, session, invCounter = 1, lineIdx = 0;
 let leads = [], contacts = [], invoices = [], expenses = [];
 let authMode = 'signin';
+let currentEditInvoiceId = null;
 
 // ── Constants ─────────────────────────────────────
 const STAGES = ['New lead', 'Contacted', 'Qualified', 'Proposal', 'Won'];
@@ -587,6 +588,7 @@ function toggleForm(id) {
   const el = document.getElementById(id);
   if (el.innerHTML.trim()) {
     el.innerHTML = '';
+    if (id === 'invoice-form') currentEditInvoiceId = null;
     return;
   }
 
@@ -915,6 +917,7 @@ function renderInvoices() {
       <td><span class="badge badge-${inv.status.toLowerCase()}">${inv.status}</span></td>
       <td>
         ${inv.status !== 'Paid' ? `<button class="btn btn-sm btn-success" onclick="markPaid('${inv.id}')">✓ Mark paid</button>` : ''}
+        <button class="btn btn-sm" style="border:1px solid var(--border2)" onclick="editInvoice('${inv.id}')">✎ Edit</button>
         <button class="btn btn-sm btn-danger" onclick="delInvoice('${inv.id}')">✕</button>
       </td>
     </tr>`).join('');
@@ -923,48 +926,49 @@ function renderInvoices() {
   }
 }
 
-function buildInvoiceForm() {
+function editInvoice(id) {
+  const inv = invoices.find(i => i.id === id);
+  if (inv) {
+    const el = document.getElementById('invoice-form');
+    if (!el.innerHTML.trim()) {
+      toggleForm('invoice-form');
+    }
+    buildInvoiceForm(inv);
+  }
+}
+
+function buildInvoiceForm(invoiceToEdit = null) {
+  currentEditInvoiceId = invoiceToEdit ? invoiceToEdit.id : null;
   lineIdx = 0;
+  
   const opts = contacts.map(c => `<option value="${sanitize(c.name)}">${sanitize(c.name)}${c.company ? ' — ' + sanitize(c.company) : ''}</option>`).join('');
+  
+  const title = invoiceToEdit ? `Edit Invoice ${invoiceToEdit.number}` : 'New GST invoice';
+  const defClient = invoiceToEdit ? sanitize(invoiceToEdit.client) : '';
+  const defDate = invoiceToEdit ? invoiceToEdit.date : today();
+  const defGstRate = invoiceToEdit ? invoiceToEdit.gst_rate : 18;
+  
   document.getElementById('invoice-form').innerHTML = `
   <div class="modal-backdrop"><div class="modal">
-    <div class="modal-title">New GST invoice</div>
+    <div class="modal-title">${title}</div>
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Client *</label>
         ${contacts.length ? `<select id="if-csel" onchange="document.getElementById('if-client').value=this.value"><option value="">— select contact —</option>${opts}</select>` : ''}
-        <input id="if-client" placeholder="Client name" style="${contacts.length ? 'margin-top:6px' : ''}">
+        <input id="if-client" placeholder="Client name" value="${defClient}" style="${contacts.length ? 'margin-top:6px' : ''}">
         <div class="form-error" id="if-client-err"></div>
       </div>
       <div class="form-group">
         <label class="form-label">Invoice date</label>
-        <input id="if-date" type="date" value="${today()}">
+        <input id="if-date" type="date" value="${defDate}">
       </div>
     </div>
     <div class="form-divider"></div>
-    <div class="inv-line-hdr"><span>Description</span><span>Qty</span><span>Rate (₹)</span><span>Amount</span><span></span></div>
-    <div id="inv-lines">
-      <div class="inv-line">
-        <input placeholder="Item / service" id="il-d0">
-        <input type="number" value="1" id="il-q0" oninput="calcLine(0)" style="text-align:right">
-        <input type="number" placeholder="0" id="il-r0" oninput="calcLine(0)" style="text-align:right">
-        <input type="number" readonly id="il-a0" style="text-align:right;background:var(--bg4)">
-        <button class="btn btn-sm btn-danger" onclick="delLine(0)" style="padding:3px 6px">✕</button>
-      </div>
-    </div>
+    <div class="inv-line-hdr"><span>Description</span><span>Qty</span><span>Rate (₹)</span><span>GST</span><span>Amount</span><span></span></div>
+    <div id="inv-lines"></div>
     <button class="btn btn-sm btn-ghost" onclick="addLine()" style="margin-top:6px">+ Add line</button>
     <div class="form-divider"></div>
     <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">GST rate</label>
-        <select id="if-gstr" onchange="updateTotals()">
-          <option value="0">0% — Exempt</option>
-          <option value="5">5%</option>
-          <option value="12">12%</option>
-          <option value="18" selected>18%</option>
-          <option value="28">28%</option>
-        </select>
-      </div>
       <div class="form-group">
         <label class="form-label">GST type</label>
         <select id="if-gstt">
@@ -977,22 +981,43 @@ function buildInvoiceForm() {
     <div class="modal-footer">
       <button class="btn" onclick="toggleForm('invoice-form')">Cancel</button>
       <button class="btn" onclick="saveInvoice('Draft')">Save draft</button>
-      <button class="btn btn-primary" onclick="saveInvoice('Pending')">Send invoice</button>
+      <button class="btn btn-primary" onclick="saveInvoice('Pending')">${invoiceToEdit ? 'Save Changes' : 'Send invoice'}</button>
     </div>
   </div></div>`;
+  
+  if (invoiceToEdit && invoiceToEdit.items && invoiceToEdit.items.length) {
+    invoiceToEdit.items.forEach(item => addLine(item));
+  } else {
+    addLine();
+  }
+  
   updateTotals();
 }
 
-function addLine() {
+function addLine(item = null) {
   lineIdx++;
   const i = lineIdx;
   const d = document.createElement('div');
   d.className = 'inv-line';
+  
+  const desc = item ? sanitize(item.desc || '') : '';
+  const qty = item ? (item.qty || 1) : 1;
+  const rate = item ? (item.rate || '') : '';
+  const gst = item ? (item.gst || 0) : 18;
+  const amt = item ? ((item.qty || 0) * (item.rate || 0)).toFixed(2) : '';
+
   d.innerHTML = `
-    <input placeholder="Item / service" id="il-d${i}">
-    <input type="number" value="1" id="il-q${i}" oninput="calcLine(${i})" style="text-align:right">
-    <input type="number" placeholder="0" id="il-r${i}" oninput="calcLine(${i})" style="text-align:right">
-    <input type="number" readonly id="il-a${i}" style="text-align:right;background:var(--bg4)">
+    <input placeholder="Item / service" id="il-d${i}" value="${desc}">
+    <input type="number" value="${qty}" id="il-q${i}" oninput="calcLine(${i})" style="text-align:right">
+    <input type="number" placeholder="0" id="il-r${i}" value="${rate}" oninput="calcLine(${i})" style="text-align:right">
+    <select id="il-g${i}" onchange="calcLine(${i})" style="padding:6px 4px;font-size:12px;background:var(--bg3)">
+      <option value="0" ${gst == 0 ? 'selected' : ''}>0%</option>
+      <option value="5" ${gst == 5 ? 'selected' : ''}>5%</option>
+      <option value="12" ${gst == 12 ? 'selected' : ''}>12%</option>
+      <option value="18" ${gst == 18 ? 'selected' : ''}>18%</option>
+      <option value="28" ${gst == 28 ? 'selected' : ''}>28%</option>
+    </select>
+    <input type="number" readonly id="il-a${i}" value="${amt}" style="text-align:right;background:var(--bg4)">
     <button class="btn btn-sm btn-danger" onclick="delLine(${i})" style="padding:3px 6px">✕</button>`;
   document.getElementById('inv-lines').appendChild(d);
 }
@@ -1014,16 +1039,22 @@ function calcLine(i) {
 function updateTotals() {
   try {
     let sub = 0;
-    document.querySelectorAll('[id^="il-a"]').forEach(el => {
-      sub += parseFloat(el.value) || 0;
+    let gst_total = 0;
+    document.querySelectorAll('.inv-line').forEach(lineEl => {
+      const inputs = lineEl.querySelectorAll('input');
+      const select = lineEl.querySelector('select');
+      if (inputs.length >= 4 && select) {
+        const amt = parseFloat(inputs[3].value) || 0;
+        const gst_rate = parseFloat(select.value) || 0;
+        sub += amt;
+        gst_total += Math.round(amt * gst_rate / 100);
+      }
     });
-    const rate = parseFloat(document.getElementById('if-gstr')?.value) || 0;
-    const gst = Math.round(sub * rate / 100);
-    const total = sub + gst;
+    const total = sub + gst_total;
     const preview = document.getElementById('inv-totals-preview');
     preview.innerHTML = `
       <div class="gst-row"><span>Subtotal</span><span>${inr(sub)}</span></div>
-      <div class="gst-row"><span>GST ${rate}%</span><span>${inr(gst)}</span></div>
+      <div class="gst-row"><span>GST</span><span>${inr(gst_total)}</span></div>
       <div class="gst-row total-row"><span>Total</span><span>${inr(total)}</span></div>`;
   } catch (err) {
     console.error('Update totals error:', err);
@@ -1040,8 +1071,24 @@ async function saveInvoice(status) {
     hideFormError('if-client-err');
 
     let sub = 0;
-    document.querySelectorAll('[id^="il-a"]').forEach(el => {
-      sub += parseFloat(el.value) || 0;
+    let gst_amt = 0;
+    const items = [];
+    document.querySelectorAll('.inv-line').forEach(lineEl => {
+      const inputs = lineEl.querySelectorAll('input');
+      const select = lineEl.querySelector('select');
+      if (inputs.length >= 4 && select) {
+        const desc = inputs[0].value.trim();
+        const qty = parseFloat(inputs[1].value) || 0;
+        const rate = parseFloat(inputs[2].value) || 0;
+        const amt = parseFloat(inputs[3].value) || 0;
+        const gst = parseFloat(select.value) || 0;
+        
+        if (desc || amt > 0) {
+          items.push({ desc, qty, rate, amt, gst });
+          sub += amt;
+          gst_amt += Math.round(amt * gst / 100);
+        }
+      }
     });
 
     if (sub === 0) {
@@ -1049,10 +1096,13 @@ async function saveInvoice(status) {
       return;
     }
 
-    const gst_rate = parseFloat(document.getElementById('if-gstr').value) || 0;
-    const gst_amt = Math.round(sub * gst_rate / 100);
     const total = sub + gst_amt;
-    const number = 'INV-' + String(invCounter).padStart(4, '0');
+    
+    let number = 'INV-' + String(invCounter).padStart(4, '0');
+    if (currentEditInvoiceId) {
+       const existing = invoices.find(i => i.id === currentEditInvoiceId);
+       if (existing) number = existing.number;
+    }
 
     const row = {
       user_id: session.user.id,
@@ -1060,21 +1110,40 @@ async function saveInvoice(status) {
       client,
       date: document.getElementById('if-date').value,
       subtotal: sub,
-      gst_rate,
+      gst_rate: 0, // Since GST is now per-line, we just set this to 0
       gst_amt,
       total,
-      status
+      status,
+      items
     };
 
-    const { data, error } = await dbOp(
-      () => sb.from('invoices').insert(row).select().single(),
-      'Failed to save invoice'
-    );
+    let data, error;
+    if (currentEditInvoiceId) {
+      const res = await dbOp(
+        () => sb.from('invoices').update(row).eq('id', currentEditInvoiceId).select().single(),
+        'Failed to update invoice'
+      );
+      data = res.data;
+      error = res.error;
+    } else {
+      const res = await dbOp(
+        () => sb.from('invoices').insert(row).select().single(),
+        'Failed to save invoice'
+      );
+      data = res.data;
+      error = res.error;
+    }
 
     if (!error) {
-      invCounter++;
-      invoices.unshift(data);
-      toast(`Invoice ${status.toLowerCase()}`);
+      if (currentEditInvoiceId) {
+        invoices = invoices.map(i => i.id === currentEditInvoiceId ? data : i);
+        toast(`Invoice updated`);
+      } else {
+        invCounter++;
+        invoices.unshift(data);
+        toast(`Invoice ${status.toLowerCase()}`);
+      }
+      currentEditInvoiceId = null;
       toggleForm('invoice-form');
       renderInvoices();
     }
