@@ -212,14 +212,17 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
       <pre id="sql-block" style="display:none;margin-top:8px;background:var(--bg4);padding:10px;border-radius:6px;font-size:10px;overflow:auto;color:var(--info);line-height:1.6">
 create table leads (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, name text, contact text, value numeric default 0, stage text default 'New lead', notes text, created_at timestamp default now());
 create table contacts (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, customer_id integer, company_code text, customer_type text default 'Company', onboard_date text, pan_no text, name text, company text, phone text, email text, gst text, city text, state text, state_code text, address text, place_of_supply text, upi_id text, remarks text, created_at timestamp default now());
+create table finished_goods (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, name text not null, sku text, quantity integer default 0, created_at timestamp default now());
 create table invoices (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, number text, client text, date text, subtotal numeric default 0, gst_rate numeric default 18, gst_amt numeric default 0, total numeric default 0, status text default 'Booked', items jsonb default '[]'::jsonb, created_at timestamp default now());
 create table expenses (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, description text, amount numeric default 0, category text, date text, paid_to text, payment_mode text, bill_attached text, distance numeric, rate_per_km numeric, purpose text, notes text, created_at timestamp default now());
 alter table leads enable row level security;
 alter table contacts enable row level security;
+alter table finished_goods enable row level security;
 alter table invoices enable row level security;
 alter table expenses enable row level security;
 create policy "own" on leads for all using (auth.uid()=user_id) with check (auth.uid()=user_id);
 create policy "own" on contacts for all using (auth.uid()=user_id) with check (auth.uid()=user_id);
+create policy "own" on finished_goods for all using (auth.uid()=user_id) with check (auth.uid()=user_id);
 create policy "own" on invoices for all using (auth.uid()=user_id) with check (auth.uid()=user_id);
 create policy "own" on expenses for all using (auth.uid()=user_id) with check (auth.uid()=user_id);
       </pre>
@@ -256,6 +259,7 @@ create policy "own" on expenses for all using (auth.uid()=user_id) with check (a
         <button class="nav-item" onclick="show('leads')" id="nav-leads">◈ &nbsp;Pipeline</button>
         <button class="nav-item" onclick="show('contacts')" id="nav-contacts">◎ &nbsp;Contacts</button>
         <div class="nav-section">Finance</div>
+        <button class="nav-item" onclick="show('stock')" id="nav-stock">▦ &nbsp;Stock</button>
         <button class="nav-item" onclick="show('invoices')" id="nav-invoices">◻ &nbsp;Invoices</button>
         <button class="nav-item" onclick="show('accounting')" id="nav-accounting">◐ &nbsp;Accounting</button>
       </nav>
@@ -310,6 +314,15 @@ create policy "own" on expenses for all using (auth.uid()=user_id) with check (a
           </div>
         </div>
 
+        <!-- STOCK -->
+        <div class="section" id="section-stock">
+          <div class="card">
+            <div class="card-head"><span class="card-title">Finished goods stock</span><button class="btn btn-primary btn-sm" onclick="toggleForm('stock-form')">+ Add finished good</button></div>
+            <div id="stock-form"></div>
+            <div class="table-wrap"><table><thead><tr><th>Finished good</th><th>SKU</th><th>Available pieces</th><th></th></tr></thead><tbody id="stock-body"></tbody></table></div>
+          </div>
+        </div>
+
         <!-- INVOICES -->
         <div class="section" id="section-invoices">
           <div class="card">
@@ -354,9 +367,10 @@ const isConfigured = CONFIG.SUPABASE_URL !== 'YOUR_SUPABASE_URL' && CONFIG.SUPAB
 
 // ── State Management ──────────────────────────────
 let sb, session, invCounter = 1, lineIdx = 0;
-let leads = [], contacts = [], invoices = [], expenses = [];
+let leads = [], contacts = [], finishedGoods = [], invoices = [], expenses = [];
 let authMode = 'signin';
 let currentEditInvoiceId = null;
+let currentEditStockId = null;
 
 // ── Constants ─────────────────────────────────────
 const STAGES = ['New lead', 'Contacted', 'Qualified', 'Proposal', 'Won'];
@@ -376,6 +390,7 @@ const PAGE_TITLES = {
   dashboard: 'Dashboard',
   leads: 'Sales Pipeline',
   contacts: 'Contacts',
+  stock: 'Finished Goods Stock',
   invoices: 'Invoices',
   accounting: 'Accounting'
 };
@@ -467,6 +482,45 @@ function getNextInvoiceNumber() {
 
 function syncInvoiceCounter() {
   invCounter = getNextInvoiceNumber();
+}
+
+function getStockItem(id) {
+  return finishedGoods.find(item => String(item.id) === String(id));
+}
+
+function getInvoiceStockAllocations(items = []) {
+  return items.reduce((acc, item) => {
+    if (!item.stock_id) return acc;
+    const qty = parseInt(item.qty, 10) || 0;
+    if (qty <= 0) return acc;
+    acc[item.stock_id] = (acc[item.stock_id] || 0) + qty;
+    return acc;
+  }, {});
+}
+
+function getCurrentInvoiceOriginalAllocations() {
+  const inv = invoices.find(i => i.id === currentEditInvoiceId);
+  return inv ? getInvoiceStockAllocations(inv.items || []) : {};
+}
+
+function getFormStockAllocations(skipLineId = null) {
+  const allocations = {};
+  document.querySelectorAll('.inv-line').forEach(lineEl => {
+    const lineId = lineEl.dataset.lineId;
+    if (skipLineId && lineId === String(skipLineId)) return;
+    const stockId = lineEl.querySelector('.line-stock')?.value;
+    const qty = parseInt(lineEl.querySelector('.line-qty')?.value, 10) || 0;
+    if (stockId && qty > 0) allocations[stockId] = (allocations[stockId] || 0) + qty;
+  });
+  return allocations;
+}
+
+function getAvailableStockForLine(lineId, stockId) {
+  const item = getStockItem(stockId);
+  if (!item) return 0;
+  const original = getCurrentInvoiceOriginalAllocations();
+  const usedElsewhere = getFormStockAllocations(lineId)[stockId] || 0;
+  return (parseInt(item.quantity, 10) || 0) + (original[stockId] || 0) - usedElsewhere;
 }
 
 function showFormError(elementId, message) {
@@ -605,6 +659,20 @@ async function fetchInvoices() {
     invoices = data || [];
   } catch (err) {
     console.error('Failed to fetch invoices:', err);
+  }
+}
+
+async function fetchFinishedGoods() {
+  try {
+    const { data, error } = await sb.from('finished_goods')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    finishedGoods = data || [];
+  } catch (err) {
+    console.error('Failed to fetch finished goods:', err);
+    finishedGoods = [];
   }
 }
 
@@ -778,6 +846,7 @@ async function signOut() {
     session = null;
     leads = [];
     contacts = [];
+    finishedGoods = [];
     invoices = [];
     expenses = [];
     document.getElementById('app').style.display = 'none';
@@ -803,6 +872,9 @@ function show(name) {
     case 'contacts':
       renderContacts();
       break;
+    case 'stock':
+      renderStock();
+      break;
     case 'invoices':
       renderInvoices();
       break;
@@ -817,12 +889,14 @@ function toggleForm(id) {
   if (el.innerHTML.trim()) {
     el.innerHTML = '';
     if (id === 'invoice-form') currentEditInvoiceId = null;
+    if (id === 'stock-form') currentEditStockId = null;
     return;
   }
 
   const builders = {
     'lead-form': buildLeadForm,
     'contact-form': buildContactForm,
+    'stock-form': buildStockForm,
     'invoice-form': buildInvoiceForm,
     'expense-form': buildExpenseForm
   };
@@ -1381,6 +1455,137 @@ async function delContact(id) {
   }
 }
 
+// ── Finished Goods Stock ──────────────────────────
+function renderStock() {
+  try {
+    const tbody = document.getElementById('stock-body');
+    if (!finishedGoods.length) {
+      tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state">No finished goods yet</div></td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = finishedGoods.map(item => `<tr>
+      <td style="font-weight:500">${sanitize(item.name)}</td>
+      <td class="td-mono">${sanitize(item.sku) || '—'}</td>
+      <td><span class="badge ${item.quantity > 0 ? 'badge-won' : 'badge-lost'}">${parseInt(item.quantity, 10) || 0} pcs</span></td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-sm" style="border:1px solid var(--border2)" onclick="editStockItem('${item.id}')">✎ Edit</button>
+        <button class="btn btn-sm btn-danger" onclick="delStockItem('${item.id}')">✕</button>
+      </td>
+    </tr>`).join('');
+  } catch (err) {
+    console.error('Failed to render stock:', err);
+  }
+}
+
+function buildStockForm(itemToEdit = null) {
+  currentEditStockId = itemToEdit ? itemToEdit.id : null;
+  const item = itemToEdit || {};
+  document.getElementById('stock-form').innerHTML = `
+  <div class="modal-backdrop"><div class="modal" style="max-width:520px">
+    <div class="modal-title">${itemToEdit ? 'Edit finished good' : 'Add finished good'}</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Finished good *</label>
+        <input id="sf-name" placeholder="e.g. Party Ice 5kg" value="${sanitize(item.name || '')}">
+        <div class="form-error" id="sf-name-err"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">SKU / Code</label>
+        <input id="sf-sku" placeholder="ICE-5KG" value="${sanitize(item.sku || '')}">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Available stock (pieces)</label>
+      <input id="sf-qty" type="text" inputmode="numeric" value="${parseInt(item.quantity, 10) || 0}" oninput="sanitizeIntegerInput(this)">
+      <div class="form-error" id="sf-qty-err"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="toggleForm('stock-form')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveStockItem()">${itemToEdit ? 'Update stock' : 'Save stock'}</button>
+    </div>
+  </div></div>`;
+}
+
+function editStockItem(id) {
+  const item = getStockItem(id);
+  if (!item) return;
+  const el = document.getElementById('stock-form');
+  if (!el.innerHTML.trim()) el.innerHTML = ' ';
+  buildStockForm(item);
+}
+
+async function saveStockItem() {
+  try {
+    const name = document.getElementById('sf-name').value.trim();
+    const quantity = parseInt(document.getElementById('sf-qty').value, 10);
+
+    if (!name) return showFormError('sf-name-err', 'Finished good name is required');
+    hideFormError('sf-name-err');
+    if (isNaN(quantity) || quantity < 0) return showFormError('sf-qty-err', 'Enter zero or more pieces');
+    hideFormError('sf-qty-err');
+
+    const row = {
+      user_id: session.user.id,
+      name,
+      sku: document.getElementById('sf-sku').value.trim(),
+      quantity
+    };
+
+    let data, error;
+    if (currentEditStockId) {
+      const res = await dbOp(
+        () => sb.from('finished_goods').update(row).eq('id', currentEditStockId).select().single(),
+        'Failed to update stock'
+      );
+      data = res.data;
+      error = res.error;
+    } else {
+      const res = await dbOp(
+        () => sb.from('finished_goods').insert(row).select().single(),
+        'Failed to save stock'
+      );
+      data = res.data;
+      error = res.error;
+    }
+
+    if (!error) {
+      if (currentEditStockId) {
+        finishedGoods = finishedGoods.map(item => item.id === currentEditStockId ? (data || { ...item, ...row }) : item);
+      } else {
+        finishedGoods.unshift(data || { ...row, id: 'local-stock-' + Date.now() });
+      }
+      currentEditStockId = null;
+      toggleForm('stock-form');
+      renderStock();
+      toast('Stock saved');
+    }
+  } catch (err) {
+    console.error('Save stock error:', err);
+  }
+}
+
+async function delStockItem(id) {
+  try {
+    const used = invoices.some(inv => (inv.items || []).some(item => String(item.stock_id) === String(id)));
+    if (used) {
+      toast('Cannot delete stock used in invoices');
+      return;
+    }
+    const item = getStockItem(id);
+    const label = item ? item.name : 'Stock item #' + id;
+    const reason = await confirmDeletion('Finished good', label);
+    if (!reason) return;
+    await logDeletion('finished_good', id, label, reason);
+    finishedGoods = finishedGoods.filter(item => item.id !== id);
+    renderStock();
+    await dbOp(() => sb.from('finished_goods').delete().eq('id', id), 'Failed to delete stock');
+    toast('Stock deleted');
+  } catch (err) {
+    console.error('Delete stock error:', err);
+  }
+}
+
 // ── Invoices ──────────────────────────────────────
 function renderInvoices() {
   try {
@@ -1456,7 +1661,7 @@ function buildInvoiceForm(invoiceToEdit = null) {
       </div>
     </div>
     <div class="form-divider"></div>
-    <div class="inv-line-hdr"><span>Description</span><span>Qty</span><span>Rate (₹)</span><span>GST</span><span>Amount</span><span></span></div>
+    <div class="inv-line-hdr"><span>Finished good</span><span>Qty</span><span>Rate (₹)</span><span>GST</span><span>Amount</span><span></span></div>
     <div id="inv-lines"></div>
     <button class="btn btn-sm btn-ghost" onclick="addLine()" style="margin-top:6px">+ Add line</button>
     <div class="form-divider"></div>
@@ -1485,33 +1690,72 @@ function buildInvoiceForm(invoiceToEdit = null) {
   updateTotals();
 }
 
+function buildStockOptions(lineId, selectedStockId = '') {
+  const options = finishedGoods
+    .map(stock => {
+      const available = getAvailableStockForLine(lineId, stock.id);
+      if (available <= 0 && String(stock.id) !== String(selectedStockId)) return '';
+      return `<option value="${stock.id}" ${String(stock.id) === String(selectedStockId) ? 'selected' : ''}>${sanitize(stock.name)}${stock.sku ? ' - ' + sanitize(stock.sku) : ''} (${available} pcs)</option>`;
+    })
+    .join('');
+  return `<option value="">Select stock item</option>${options}`;
+}
+
+function refreshStockOptions() {
+  document.querySelectorAll('.inv-line').forEach(lineEl => {
+    const lineId = lineEl.dataset.lineId;
+    const select = lineEl.querySelector('.line-stock');
+    if (!select) return;
+    const selected = select.value;
+    select.innerHTML = buildStockOptions(lineId, selected);
+    if (selected) select.value = selected;
+  });
+}
+
+function syncLineFromStock(lineId) {
+  const stockId = document.getElementById('il-s' + lineId)?.value;
+  const desc = document.getElementById('il-d' + lineId);
+  const stock = getStockItem(stockId);
+  if (desc) desc.value = stock ? stock.name : '';
+  refreshStockOptions();
+  calcLine(lineId);
+}
+
 function addLine(item = null) {
   lineIdx++;
   const i = lineIdx;
   const d = document.createElement('div');
   d.className = 'inv-line';
+  d.dataset.lineId = String(i);
   
   const desc = item ? sanitize(item.desc || '') : '';
   const qty = item ? (item.qty || 1) : 1;
   const rate = item ? (item.rate || '') : '';
+  const stockId = item ? (item.stock_id || '') : '';
   const gst = 5;
   const amt = item ? ((item.qty || 0) * (item.rate || 0)).toFixed(2) : '';
 
   d.innerHTML = `
-    <input placeholder="Item / service" id="il-d${i}" value="${desc}">
-    <input type="text" inputmode="numeric" value="${qty}" id="il-q${i}" oninput="sanitizeIntegerInput(this);calcLine(${i})" style="text-align:right">
+    <div>
+      <select class="line-stock" id="il-s${i}" onchange="syncLineFromStock(${i})" style="padding:6px 4px;font-size:12px;background:var(--bg3)">${buildStockOptions(i, stockId)}</select>
+      <input type="hidden" id="il-d${i}" value="${desc}">
+    </div>
+    <input class="line-qty" type="text" inputmode="numeric" value="${qty}" id="il-q${i}" oninput="sanitizeIntegerInput(this);calcLine(${i});refreshStockOptions()" style="text-align:right">
     <input type="text" inputmode="decimal" placeholder="0" id="il-r${i}" value="${rate}" oninput="sanitizeFloatInput(this);calcLine(${i})" style="text-align:right">
-    <select id="il-g${i}" onchange="calcLine(${i})" style="padding:6px 4px;font-size:12px;background:var(--bg3)">
+    <select class="line-gst" id="il-g${i}" onchange="calcLine(${i})" style="padding:6px 4px;font-size:12px;background:var(--bg3)">
       <option value="5" selected>5%</option>
     </select>
     <input type="text" readonly id="il-a${i}" value="${amt}" style="text-align:right;background:var(--bg4)">
     <button class="btn btn-sm btn-danger" onclick="delLine(${i})" style="padding:3px 6px">✕</button>`;
   document.getElementById('inv-lines').appendChild(d);
+  if (stockId) document.getElementById('il-s' + i).value = stockId;
+  syncLineFromStock(i);
 }
 
 function delLine(i) {
   const el = document.getElementById('il-d' + i);
-  if (el) el.parentElement.remove();
+  if (el) el.closest('.inv-line')?.remove();
+  refreshStockOptions();
   updateTotals();
 }
 
@@ -1529,7 +1773,7 @@ function updateTotals() {
     let gst_total = 0;
     document.querySelectorAll('.inv-line').forEach(lineEl => {
       const inputs = lineEl.querySelectorAll('input');
-      const select = lineEl.querySelector('select');
+      const select = lineEl.querySelector('.line-gst');
       if (inputs.length >= 4 && select) {
         const amt = parseFloat(inputs[3].value) || 0;
         const gst_rate = parseFloat(select.value) || 0;
@@ -1561,6 +1805,67 @@ function updateTotals() {
   }
 }
 
+function buildStockDeltas(items) {
+  const original = currentEditInvoiceId
+    ? getInvoiceStockAllocations(invoices.find(i => i.id === currentEditInvoiceId)?.items || [])
+    : {};
+  const next = getInvoiceStockAllocations(items);
+  const ids = new Set([...Object.keys(original), ...Object.keys(next)]);
+  return [...ids].map(stock_id => ({
+    stock_id,
+    delta: (next[stock_id] || 0) - (original[stock_id] || 0)
+  })).filter(entry => entry.delta !== 0);
+}
+
+function validateStockDeltas(deltas) {
+  for (const { stock_id, delta } of deltas) {
+    const stock = getStockItem(stock_id);
+    if (!stock) return `Stock item not found for one of the invoice lines`;
+    if (delta > (parseInt(stock.quantity, 10) || 0)) {
+      return `${stock.name} has only ${parseInt(stock.quantity, 10) || 0} pcs available`;
+    }
+  }
+  return '';
+}
+
+async function applyStockDeltas(deltas) {
+  const err = validateStockDeltas(deltas);
+  if (err) {
+    toast(err);
+    return false;
+  }
+
+  const applied = [];
+  for (const { stock_id, delta } of deltas) {
+    const stock = getStockItem(stock_id);
+    const nextQty = (parseInt(stock.quantity, 10) || 0) - delta;
+    const res = await dbOp(
+      () => sb.from('finished_goods').update({ quantity: nextQty }).eq('id', stock_id),
+      'Failed to update stock'
+    );
+    if (res.error) {
+      await rollbackStockDeltas(applied);
+      return false;
+    }
+    stock.quantity = nextQty;
+    applied.push({ stock_id, delta });
+  }
+  return true;
+}
+
+async function rollbackStockDeltas(deltas) {
+  for (const { stock_id, delta } of deltas.slice().reverse()) {
+    const stock = getStockItem(stock_id);
+    if (!stock) continue;
+    const restoredQty = (parseInt(stock.quantity, 10) || 0) + delta;
+    await dbOp(
+      () => sb.from('finished_goods').update({ quantity: restoredQty }).eq('id', stock_id),
+      'Failed to restore stock'
+    );
+    stock.quantity = restoredQty;
+  }
+}
+
 async function saveInvoice(status) {
   try {
     const client = document.getElementById('if-client').value.trim();
@@ -1575,21 +1880,34 @@ async function saveInvoice(status) {
     const items = [];
     document.querySelectorAll('.inv-line').forEach(lineEl => {
       const inputs = lineEl.querySelectorAll('input');
-      const select = lineEl.querySelector('select');
+      const select = lineEl.querySelector('.line-gst');
+      const stockSelect = lineEl.querySelector('.line-stock');
       if (inputs.length >= 4 && select) {
         const desc = inputs[0].value.trim();
         const qty = parseFloat(inputs[1].value) || 0;
         const rate = parseFloat(inputs[2].value) || 0;
         const amt = parseFloat(inputs[3].value) || 0;
         const gst = parseFloat(select.value) || 0;
+        const stock_id = stockSelect?.value || '';
         
         if (desc || amt > 0) {
-          items.push({ desc, qty, rate, amt, gst });
+          items.push({ stock_id, desc, qty, rate, amt, gst });
           sub += amt;
           gst_amt += Math.round(amt * gst / 100);
         }
       }
     });
+
+    for (const item of items) {
+      if (!item.stock_id) {
+        toast('Select a finished good for every invoice line');
+        return;
+      }
+      if ((parseInt(item.qty, 10) || 0) <= 0) {
+        toast('Invoice quantity must be at least 1 piece');
+        return;
+      }
+    }
 
     if (sub === 0) {
       toast('Invoice must have at least one line item');
@@ -1616,6 +1934,10 @@ async function saveInvoice(status) {
       status,
       items
     };
+
+    const stockDeltas = buildStockDeltas(items);
+    const stockApplied = await applyStockDeltas(stockDeltas);
+    if (!stockApplied) return;
 
     let data, error;
     if (currentEditInvoiceId) {
@@ -1662,6 +1984,9 @@ async function saveInvoice(status) {
       renderInvoices();
       renderDashboard();
       renderAccounting();
+      renderStock();
+    } else {
+      await rollbackStockDeltas(stockDeltas);
     }
   } catch (err) {
     console.error('Save invoice error:', err);
@@ -1726,9 +2051,21 @@ async function delInvoice(id) {
     const reason = await confirmDeletion('Invoice', label);
     if (!reason) return;
     await logDeletion('invoice', id, label, reason);
+    const restoreDeltas = Object.entries(getInvoiceStockAllocations(inv?.items || []))
+      .map(([stock_id, qty]) => ({ stock_id, delta: -qty }));
+    const stockRestored = await applyStockDeltas(restoreDeltas);
+    if (!stockRestored) return;
     invoices = invoices.filter(i => i.id !== id);
     renderInvoices();
-    await dbOp(() => sb.from('invoices').delete().eq('id', id), 'Failed to delete invoice');
+    const { error } = await dbOp(() => sb.from('invoices').delete().eq('id', id), 'Failed to delete invoice');
+    if (error) {
+      await rollbackStockDeltas(restoreDeltas);
+      invoices.unshift(inv);
+      renderInvoices();
+      renderStock();
+      return;
+    }
+    renderStock();
     toast('Invoice deleted');
   } catch (err) {
     console.error('Delete invoice error:', err);
@@ -1947,6 +2284,7 @@ function exportData() {
     const blob = new Blob([JSON.stringify({
       leads,
       contacts,
+      finishedGoods,
       invoices,
       expenses,
       exportedAt: new Date().toISOString()
@@ -2015,7 +2353,7 @@ async function loadAndShowApp() {
     document.getElementById('app').style.display = 'block';
     setSyncStatus('ing', '⟳ Syncing…');
 
-    await Promise.all([fetchLeads(), fetchContacts(), fetchInvoices(), fetchExpenses()]);
+    await Promise.all([fetchLeads(), fetchContacts(), fetchFinishedGoods(), fetchInvoices(), fetchExpenses()]);
 
     syncInvoiceCounter();
     setSyncStatus('ok', '● Synced');
