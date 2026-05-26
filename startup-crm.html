@@ -588,9 +588,16 @@ async function signOut() {
   if (dlg) dlg.remove();
   try {
     await sb.auth.signOut();
-    leads = contacts = invoices = expenses = [];
   } catch (err) {
     console.error('Sign out error:', err);
+  } finally {
+    session = null;
+    leads = [];
+    contacts = [];
+    invoices = [];
+    expenses = [];
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('login-screen').style.display = 'flex';
   }
 }
 
