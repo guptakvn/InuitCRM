@@ -95,7 +95,12 @@ tr:hover td{background:rgba(0,0,0,0.02)}
 .badge-lost{background:rgba(248,113,113,0.1);color:var(--danger);border-color:rgba(248,113,113,0.2)}
 .badge-paid{background:rgba(74,222,128,0.1);color:var(--accent2);border-color:rgba(74,222,128,0.2)}
 .badge-pending{background:rgba(251,191,36,0.1);color:var(--warning);border-color:rgba(251,191,36,0.2)}
+.badge-booked{background:rgba(96,165,250,0.1);color:var(--info);border-color:rgba(96,165,250,0.2)}
+.badge-ice-made{background:rgba(236,72,153,0.1);color:var(--accent4);border-color:rgba(236,72,153,0.2)}
+.badge-delivered{background:rgba(14,165,233,0.1);color:var(--accent);border-color:rgba(14,165,233,0.2)}
+.badge-awaiting-payment{background:rgba(251,191,36,0.1);color:var(--warning);border-color:rgba(251,191,36,0.2)}
 .badge-draft{background:var(--bg3);color:var(--text3);border-color:var(--border)}
+.status-select{min-width:150px;padding:5px 8px;font-size:12px;background:var(--bg3)}
 
 /* ── Pipeline ── */
 .pipeline-board{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
@@ -207,7 +212,7 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
       <pre id="sql-block" style="display:none;margin-top:8px;background:var(--bg4);padding:10px;border-radius:6px;font-size:10px;overflow:auto;color:var(--info);line-height:1.6">
 create table leads (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, name text, contact text, value numeric default 0, stage text default 'New lead', notes text, created_at timestamp default now());
 create table contacts (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, customer_id integer, company_code text, customer_type text default 'Company', onboard_date text, pan_no text, name text, company text, phone text, email text, gst text, city text, state text, state_code text, address text, place_of_supply text, upi_id text, remarks text, created_at timestamp default now());
-create table invoices (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, number text, client text, date text, subtotal numeric default 0, gst_rate numeric default 18, gst_amt numeric default 0, total numeric default 0, status text default 'Draft', items jsonb default '[]'::jsonb, created_at timestamp default now());
+create table invoices (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, number text, client text, date text, subtotal numeric default 0, gst_rate numeric default 18, gst_amt numeric default 0, total numeric default 0, status text default 'Booked', items jsonb default '[]'::jsonb, created_at timestamp default now());
 create table expenses (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, description text, amount numeric default 0, category text, date text, paid_to text, payment_mode text, bill_attached text, distance numeric, rate_per_km numeric, purpose text, notes text, created_at timestamp default now());
 alter table leads enable row level security;
 alter table contacts enable row level security;
@@ -317,7 +322,7 @@ create policy "own" on expenses for all using (auth.uid()=user_id) with check (a
         <!-- ACCOUNTING -->
         <div class="section" id="section-accounting">
           <div class="stat-grid">
-            <div class="stat-card green"><div class="stat-label">Total income</div><div class="stat-value" id="acc-inc">₹0</div></div>
+            <div class="stat-card green"><div class="stat-label">Booked revenue</div><div class="stat-value" id="acc-inc">₹0</div></div>
             <div class="stat-card" style="border-color:rgba(248,113,113,0.2)"><div class="stat-label">Total expenses</div><div class="stat-value" style="color:var(--danger)" id="acc-exp">₹0</div></div>
             <div class="stat-card purple"><div class="stat-label">Net profit</div><div class="stat-value" id="acc-profit">₹0</div></div>
             <div class="stat-card orange"><div class="stat-label">GST liability</div><div class="stat-value" id="acc-gst2">₹0</div></div>
@@ -328,7 +333,7 @@ create policy "own" on expenses for all using (auth.uid()=user_id) with check (a
               <div id="expense-form"></div>
               <div class="table-wrap"><table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Amount</th><th></th></tr></thead><tbody id="expenses-body"></tbody></table></div>
             </div>
-            <div class="card"><div class="card-head"><span class="card-title">P&amp;L summary</span></div><div class="card-body" id="pl-summary"></div></div>
+            <div class="card"><div class="card-head"><span class="card-title">Monthly P&amp;L</span></div><div class="card-body" id="pl-summary"></div></div>
           </div>
         </div>
 
@@ -361,6 +366,11 @@ const STAGE_COLORS = {
   'Qualified': 'var(--accent3)',
   'Proposal': 'var(--accent)',
   'Won': 'var(--accent2)'
+};
+const INVOICE_STATUSES = ['Booked', 'Ice Made', 'Delivered', 'Awaiting Payment', 'Paid'];
+const LEGACY_INVOICE_STATUS_MAP = {
+  Draft: 'Booked',
+  Pending: 'Awaiting Payment'
 };
 const PAGE_TITLES = {
   dashboard: 'Dashboard',
@@ -417,6 +427,31 @@ function sanitizeFloatInput(input) {
 
 function sanitizeAlphanumericInput(input) {
   input.value = input.value.replace(/[^a-zA-Z0-9]/g, '');
+}
+
+function getInvoiceStatus(invoice) {
+  const status = invoice?.status || 'Booked';
+  return LEGACY_INVOICE_STATUS_MAP[status] || status;
+}
+
+function invoiceStatusClass(status) {
+  return 'badge-' + getInvoiceStatus({ status }).toLowerCase().replace(/\s+/g, '-');
+}
+
+function isRevenueInvoice(invoice) {
+  return getInvoiceStatus(invoice) !== 'Draft';
+}
+
+function monthKey(dateStr) {
+  const d = dateStr ? new Date(dateStr + 'T00:00:00') : new Date();
+  if (Number.isNaN(d.getTime())) return 'Undated';
+  return d.toLocaleString('en-IN', { month: 'short', year: 'numeric' });
+}
+
+function monthSortKey(dateStr) {
+  const d = dateStr ? new Date(dateStr + 'T00:00:00') : new Date();
+  if (Number.isNaN(d.getTime())) return '0000-00';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function showFormError(elementId, message) {
@@ -788,8 +823,8 @@ function toggleSqlBlock() {
 // ── Dashboard ─────────────────────────────────────
 function renderDashboard() {
   try {
-    const paid = invoices.filter(i => i.status === 'Paid');
-    const pend = invoices.filter(i => i.status === 'Pending');
+    const paid = invoices.filter(i => getInvoiceStatus(i) === 'Paid');
+    const pend = invoices.filter(i => getInvoiceStatus(i) === 'Awaiting Payment');
     const open = leads.filter(l => l.stage !== 'Won' && l.stage !== 'Lost');
 
     document.getElementById('s-revenue').textContent = inr(paid.reduce((a, i) => a + (i.total || 0), 0));
@@ -800,7 +835,7 @@ function renderDashboard() {
     const af = document.getElementById('dash-activity');
     const acts = [
       ...leads.slice(0, 3).map(l => `New deal: "${l.name}" — ${inr(l.value)}`),
-      ...invoices.slice(0, 3).map(i => `Invoice ${i.number} — ${i.status}`),
+      ...invoices.slice(0, 3).map(i => `Invoice ${i.number} — ${getInvoiceStatus(i)}`),
       ...contacts.slice(0, 2).map(c => `Contact: ${c.name}`)
     ];
     af.innerHTML = acts.length
@@ -1339,20 +1374,27 @@ function renderInvoices() {
       tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state">No invoices yet</div></td></tr>`;
       return;
     }
-    tbody.innerHTML = invoices.map(inv => `<tr>
+    tbody.innerHTML = invoices.map(inv => {
+      const status = getInvoiceStatus(inv);
+      const statusOptions = INVOICE_STATUSES.map(s => `<option value="${s}" ${s === status ? 'selected' : ''}>${s}</option>`).join('');
+      return `<tr>
       <td class="td-mono">${sanitize(inv.number)}</td>
       <td style="font-weight:500">${sanitize(inv.client)}</td>
       <td>${inv.date}</td>
       <td>${inr(inv.subtotal)}</td>
       <td>${inr(inv.gst_amt)}</td>
       <td style="font-weight:500">${inr(inv.total)}</td>
-      <td><span class="badge badge-${inv.status.toLowerCase()}">${inv.status}</span></td>
       <td>
-        ${inv.status !== 'Paid' ? `<button class="btn btn-sm btn-success" onclick="markPaid('${inv.id}')">✓ Mark paid</button>` : ''}
-        <button class="btn btn-sm" style="border:1px solid var(--border2)" onclick="editInvoice('${inv.id}')">✎ Edit</button>
-        ${inv.status === 'Paid' ? `<button class="btn btn-sm btn-danger" disabled style="opacity:0.35;cursor:not-allowed" title="Paid invoices cannot be deleted">✕</button>` : `<button class="btn btn-sm btn-danger" onclick="delInvoice('${inv.id}')">✕</button>`}
+        <span class="badge ${invoiceStatusClass(status)}">${status}</span>
+        ${status !== 'Paid' ? `<select class="status-select" onchange="updateInvoiceStatus('${inv.id}', this.value)" style="margin-top:6px"><option value="">Move to...</option>${statusOptions}</select>` : ''}
       </td>
-    </tr>`).join('');
+      <td>
+        ${status !== 'Paid' ? `<button class="btn btn-sm btn-success" onclick="markPaid('${inv.id}')">✓ Mark paid</button>
+          <button class="btn btn-sm" style="border:1px solid var(--border2)" onclick="editInvoice('${inv.id}')">✎ Edit</button>
+          <button class="btn btn-sm btn-danger" onclick="delInvoice('${inv.id}')">✕</button>` : '<span style="font-size:12px;color:var(--text3)">Closed</span>'}
+      </td>
+    </tr>`;
+    }).join('');
   } catch (err) {
     console.error('Failed to render invoices:', err);
   }
@@ -1360,6 +1402,10 @@ function renderInvoices() {
 
 function editInvoice(id) {
   const inv = invoices.find(i => i.id === id);
+  if (getInvoiceStatus(inv) === 'Paid') {
+    toast('Paid invoices are closed and cannot be edited');
+    return;
+  }
   if (inv) {
     const el = document.getElementById('invoice-form');
     if (!el.innerHTML.trim()) {
@@ -1378,7 +1424,7 @@ function buildInvoiceForm(invoiceToEdit = null) {
   const title = invoiceToEdit ? `Edit Invoice ${invoiceToEdit.number}` : 'New GST invoice';
   const defClient = invoiceToEdit ? sanitize(invoiceToEdit.client) : '';
   const defDate = invoiceToEdit ? invoiceToEdit.date : today();
-  const defGstRate = invoiceToEdit ? invoiceToEdit.gst_rate : 18;
+  const defStatus = invoiceToEdit ? getInvoiceStatus(invoiceToEdit) : 'Booked';
   
   document.getElementById('invoice-form').innerHTML = `
   <div class="modal-backdrop"><div class="modal">
@@ -1412,11 +1458,7 @@ function buildInvoiceForm(invoiceToEdit = null) {
     <div id="inv-totals-preview" class="gst-block"></div>
     <div class="modal-footer">
       <button class="btn" onclick="toggleForm('invoice-form')">Cancel</button>
-      ${(!invoiceToEdit || invoiceToEdit.status === 'Draft') 
-        ? `<button class="btn" onclick="saveInvoice('Draft')">${invoiceToEdit ? 'Update draft' : 'Save draft'}</button>
-           <button class="btn btn-primary" onclick="saveInvoice('Pending')">Send invoice</button>`
-        : `<button class="btn btn-primary" onclick="saveInvoice('${invoiceToEdit.status}')">Save Changes</button>`
-      }
+      <button class="btn btn-primary" onclick="saveInvoice('${defStatus}')">${invoiceToEdit ? 'Save changes' : 'Book invoice'}</button>
     </div>
   </div></div>`;
   
@@ -1589,7 +1631,7 @@ async function saveInvoice(status) {
       }
       currentEditInvoiceId = null;
 
-      if (status === 'Pending') {
+      if (status === 'Awaiting Payment') {
         const contact = contacts.find(c => c.name.toLowerCase() === client.toLowerCase());
         if (contact && contact.email) {
           const subject = encodeURIComponent(`Invoice #${row.number} from ${session?.user?.email || 'StartupCRM User'}`);
@@ -1604,27 +1646,65 @@ async function saveInvoice(status) {
 
       toggleForm('invoice-form');
       renderInvoices();
+      renderDashboard();
+      renderAccounting();
     }
   } catch (err) {
     console.error('Save invoice error:', err);
   }
 }
 
-async function markPaid(id) {
+async function updateInvoiceStatus(id, status) {
+  if (!status || !INVOICE_STATUSES.includes(status)) return;
   try {
-    invoices = invoices.map(i => i.id === id ? { ...i, status: 'Paid' } : i);
+    const inv = invoices.find(i => i.id === id);
+    if (!inv) return;
+    const prevStatus = getInvoiceStatus(inv);
+    if (prevStatus === status) {
+      renderInvoices();
+      return;
+    }
+
+    invoices = invoices.map(i => i.id === id ? { ...i, status } : i);
     renderInvoices();
-    await dbOp(() => sb.from('invoices').update({ status: 'Paid' }).eq('id', id), 'Failed to mark as paid');
-    toast('Marked as paid');
+    renderDashboard();
+    renderAccounting();
+
+    const { error } = await dbOp(
+      () => sb.from('invoices').update({ status }).eq('id', id),
+      'Failed to update invoice status'
+    );
+
+    if (error) {
+      invoices = invoices.map(i => i.id === id ? { ...i, status: prevStatus } : i);
+      renderInvoices();
+      renderDashboard();
+      renderAccounting();
+      return;
+    }
+
+    if (status === 'Paid') {
+      if (currentEditInvoiceId === id) {
+        document.getElementById('invoice-form').innerHTML = '';
+        currentEditInvoiceId = null;
+      }
+      toast('Invoice marked as paid');
+    } else {
+      toast(`Invoice moved to ${status}`);
+    }
   } catch (err) {
-    console.error('Mark paid error:', err);
+    console.error('Update invoice status error:', err);
   }
+}
+
+async function markPaid(id) {
+  await updateInvoiceStatus(id, 'Paid');
 }
 
 async function delInvoice(id) {
   try {
     const inv = invoices.find(i => i.id === id);
-    if (inv && inv.status === 'Paid') {
+    if (inv && getInvoiceStatus(inv) === 'Paid') {
       toast('Cannot delete a paid invoice');
       return;
     }
@@ -1643,9 +1723,10 @@ async function delInvoice(id) {
 
 function renderAccounting() {
   try {
-    const income = invoices.filter(i => i.status === 'Paid').reduce((a, i) => a + (i.total || 0), 0);
+    const revenueInvoices = invoices.filter(isRevenueInvoice);
+    const income = revenueInvoices.reduce((a, i) => a + (i.subtotal || 0), 0);
     const expense = expenses.reduce((a, e) => a + (e.amount || 0), 0);
-    const gst = invoices.filter(i => i.status === 'Paid').reduce((a, i) => a + (i.gst_amt || 0), 0);
+    const gst = revenueInvoices.reduce((a, i) => a + (i.gst_amt || 0), 0);
     const profit = income - expense;
 
     document.getElementById('acc-inc').textContent = inr(income);
@@ -1672,23 +1753,37 @@ function renderAccounting() {
       </tr>`).join('');
     }
 
-    const cats = {};
-    expenses.forEach(e => {
-      cats[e.category] = (cats[e.category] || 0) + (e.amount || 0);
+    const months = {};
+    revenueInvoices.forEach(inv => {
+      const key = monthSortKey(inv.date);
+      if (!months[key]) months[key] = { label: monthKey(inv.date), revenue: 0, gst: 0, expenses: 0 };
+      months[key].revenue += inv.subtotal || 0;
+      months[key].gst += inv.gst_amt || 0;
+    });
+    expenses.forEach(exp => {
+      const key = monthSortKey(exp.date);
+      if (!months[key]) months[key] = { label: monthKey(exp.date), revenue: 0, gst: 0, expenses: 0 };
+      months[key].expenses += exp.amount || 0;
     });
 
-    const invRows = invoices.filter(i => i.status === 'Paid').reduce((a, i) => a + (i.subtotal || 0), 0);
+    const monthlyRows = Object.entries(months)
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([, m]) => {
+        const monthProfit = m.revenue - m.expenses;
+        return `<div class="pl-section">
+          <div class="pl-section-title">${sanitize(m.label)}</div>
+          <div class="pl-row"><span>Invoice bookings (excl. GST)</span><span style="color:var(--accent2)">${inr(m.revenue)}</span></div>
+          <div class="pl-row"><span>GST liability</span><span style="color:var(--warning)">${inr(m.gst)}</span></div>
+          <div class="pl-row"><span>Expenses</span><span style="color:var(--danger)">${inr(m.expenses)}</span></div>
+          <div class="pl-row subtotal"><span>Net P&amp;L</span><span style="color:${monthProfit >= 0 ? 'var(--accent2)' : 'var(--danger)'}">${inr(monthProfit)}</span></div>
+        </div>`;
+      }).join('');
+
     document.getElementById('pl-summary').innerHTML = `
-      <div class="pl-section"><div class="pl-section-title" style="color:var(--accent2)">Income</div>
-        <div class="pl-row"><span>Invoice revenue (excl. GST)</span><span style="color:var(--accent2)">${inr(invRows)}</span></div>
-        <div class="pl-row"><span>GST collected</span><span style="color:var(--accent2)">${inr(gst)}</span></div>
-      </div>
-      <div class="pl-section"><div class="pl-section-title" style="color:var(--danger)">Expenses</div>
-        ${Object.entries(cats).map(([k, v]) => `<div class="pl-row"><span>${sanitize(k)}</span><span style="color:var(--danger)">${inr(v)}</span></div>`).join('')}
-      </div>
+      ${monthlyRows || '<div class="empty-state">No invoice bookings or expenses yet</div>'}
       <div class="pl-section" style="background:${profit >= 0 ? 'rgba(74,222,128,0.05)' : 'rgba(248,113,113,0.05)'}">
         <div class="pl-row" style="font-size:15px;font-weight:600">
-          <span>Net profit / loss</span>
+          <span>Total net profit / loss</span>
           <span style="color:${profit >= 0 ? 'var(--accent2)' : 'var(--danger)'}">${inr(profit)}</span>
         </div>
       </div>`;
