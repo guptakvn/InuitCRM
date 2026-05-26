@@ -1935,18 +1935,18 @@ function printExpense(id) {
           </div>
           <div style="text-align: right">
             <div class="meta-label">Claim Date</div>
-            <div style="font-size: 16px; font-weight: 700; margin-top: 4px;">\${claimDate}</div>
+            <div style="font-size: 16px; font-weight: 700; margin-top: 4px;">${claimDate}</div>
           </div>
         </div>
 
         <div class="meta-grid">
           <div class="meta-item">
             <span class="meta-label">Claimant / Paid To</span>
-            <span class="meta-value">\${sanitize(paidTo)}</span>
+            <span class="meta-value">${sanitize(paidTo)}</span>
           </div>
           <div class="meta-item">
             <span class="meta-label">Payment Mode</span>
-            <span class="meta-value">\${sanitize(pm)}</span>
+            <span class="meta-value">${sanitize(pm)}</span>
           </div>
         </div>
 
@@ -1983,12 +1983,9 @@ function printExpense(id) {
         </div>
 
         <div class="section-title">Purpose of Expense</div>
-        <div class="purpose-box">\${sanitize(purpose)}</div>
+        <div class="purpose-box">${sanitize(purpose)}</div>
 
-        \${notes ? \`
-          <div class="section-title">Additional Info / Notes</div>
-          <div class="purpose-box" style="background:#fff; border-style:solid; margin-bottom:30px;">\${sanitize(notes)}</div>
-        \` : ''}
+        ${notes ? '<div class="section-title">Additional Info / Notes</div><div class="purpose-box" style="background:#fff; border-style:solid; margin-bottom:30px;">' + sanitize(notes) + '</div>' : ''}
 
         <div class="declaration">
           <strong>Declaration:</strong> I hereby declare that the above expenses are incurred for official/business purposes and are accurate to the best of my knowledge.
