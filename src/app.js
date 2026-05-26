@@ -1,5 +1,6 @@
 // src/app.js
 import { inr, today, sanitize, toast, dbOp } from './utils.js';
+import { renderAccounting } from './accounting.js';
 
 // ════════════════════════════════════════════════════
 // ⚙  CONFIGURATION — REPLACE THESE WITH YOUR VALUES
@@ -218,3 +219,5 @@ async function init() {
   }
 }
 init();
+window.renderAccounting = renderAccounting;
+window.delExpense = delExpense;

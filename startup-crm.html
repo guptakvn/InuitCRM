@@ -1591,7 +1591,6 @@ async function saveInvoice(status) {
       }
       currentEditInvoiceId = null;
 
-      // Trigger email if the status is Pending (from clicking "Send invoice")
       if (status === 'Pending') {
         const contact = contacts.find(c => c.name.toLowerCase() === client.toLowerCase());
         if (contact && contact.email) {
@@ -1644,37 +1643,6 @@ async function delInvoice(id) {
   }
 }
 
-// ── Accounting ────────────────────────────────────
-function renderAccounting() {
-  try {
-    const income = invoices.filter(i => i.status === 'Paid').reduce((a, i) => a + (i.total || 0), 0);
-    const expense = expenses.reduce((a, e) => a + (e.amount || 0), 0);
-    const gst = invoices.filter(i => i.status === 'Paid').reduce((a, i) => a + (i.gst_amt || 0), 0);
-    const profit = income - expense;
-
-    document.getElementById('acc-inc').textContent = inr(income);
-    document.getElementById('acc-exp').textContent = inr(expense);
-    document.getElementById('acc-profit').textContent = inr(profit);
-    document.getElementById('acc-profit').style.color = profit >= 0 ? 'var(--accent2)' : 'var(--danger)';
-    document.getElementById('acc-gst2').textContent = inr(gst);
-
-    const tbody = document.getElementById('expenses-body');
-    if (!expenses.length) {
-      tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state">No expenses yet</div></td></tr>`;
-    } else {
-      tbody.innerHTML = expenses.map(e => `<tr>
-        <td>${e.date}</td>
-        <td>
-          <div style="font-weight:500">${sanitize(e.description)}</div>
-          ${e.paid_to ? `<div style="font-size:10px;color:var(--text3)">Paid to: ${sanitize(e.paid_to)}</div>` : ''}
-        </td>
-        <td><span class="badge badge-new">${sanitize(e.category)}</span></td>
-        <td style="font-family:'DM Mono',monospace;font-weight:500">${inr(e.amount)}</td>
-        <td>
-          <button class="btn btn-sm btn-danger" onclick="delExpense('${e.id}')">✕</button>
-        </td>
-      </tr>`).join('');
-    }
 
     const cats = {};
     expenses.forEach(e => {
@@ -1745,112 +1713,74 @@ function buildExpenseForm() {
         <label class="form-label">Payment Mode</label>
         <select id="ef-pm">
           <option>UPI</option>
+          <option>Bank Transfer</option>
           <option>Cash</option>
-          <option>Card</option>
+          <option>Credit Card</option>
         </select>
       </div>
       <div class="form-group">
-        <label class="form-label">Bill Attached</label>
-        <select id="ef-ba">
-          <option>No</option>
-          <option>Yes</option>
-        </select>
+        <label class="form-label">Amount (INR)</label>
+        <input id="ef-amount" type="number" placeholder="0.00">
+        <div class="form-error" id="ef-amount-err"></div>
       </div>
     </div>
 
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Distance (km) — for travel/delivery</label>
-        <input id="ef-dist" placeholder="e.g. 21.00" oninput="sanitizeFloatInput(this); calcExpenseCost()">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Rate per km (₹)</label>
-        <input id="ef-rate" placeholder="e.g. 12" oninput="sanitizeFloatInput(this); calcExpenseCost()">
-      </div>
+    <div class="form-group">
+      <label class="form-label">Purpose of Expense</label>
+      <textarea id="ef-purpose" rows="2" placeholder="Briefly describe why this was incurred..."></textarea>
+      <div class="form-error" id="ef-purpose-err"></div>
     </div>
 
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Total Cost / Amount (₹) *</label>
-        <input id="ef-amt" placeholder="Amount in ₹" oninput="sanitizeFloatInput(this)">
-        <div class="form-error" id="ef-amt-err"></div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Purpose of Expense</label>
-        <input id="ef-purpose" placeholder="e.g. Transportation of Ice Cube to Kingdome">
-      </div>
+    <div class="form-group">
+      <label class="form-label">Additional Notes (Optional)</label>
+      <textarea id="ef-notes" rows="2"></textarea>
     </div>
 
-    <div class="form-row" style="margin-top:12px">
-      <div class="form-group" style="grid-column: span 2">
-        <label class="form-label">Additional Notes / Remarks</label>
-        <textarea id="ef-notes" placeholder="Enter any extra notes, details, or claims..." style="width:100%;min-height:50px;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;resize:vertical"></textarea>
-      </div>
-    </div>
-
-    <div class="modal-footer">
-      <button class="btn" onclick="toggleForm('expense-form')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveExpense()">Save expense</button>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="toggleForm('expense-form')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveExpense()">Save Expense</button>
     </div>
   </div></div>`;
 }
 
-function calcExpenseCost() {
-  const dist = parseFloat(document.getElementById('ef-dist').value) || 0;
-  const rate = parseFloat(document.getElementById('ef-rate').value) || 0;
-  if (dist > 0 && rate > 0) {
-    document.getElementById('ef-amt').value = (dist * rate).toFixed(2);
-  }
-}
-
 async function saveExpense() {
   try {
-    const description = document.getElementById('ef-desc').value.trim();
-    if (!description) {
-      showFormError('ef-desc-err', 'Description is required');
-      return;
-    }
     hideFormError('ef-desc-err');
-
-    const paid_to = document.getElementById('ef-paid-to').value.trim();
-    if (!paid_to) {
-      showFormError('ef-paid-to-err', 'Paid to / Claimant name is required');
-      return;
-    }
     hideFormError('ef-paid-to-err');
+    hideFormError('ef-amount-err');
+    hideFormError('ef-purpose-err');
 
-    const amount = parseFloat(document.getElementById('ef-amt').value) || 0;
-    if (!validators.amount(amount)) {
-      showFormError('ef-amt-err', 'Please enter a valid amount');
-      return;
-    }
-    hideFormError('ef-amt-err');
+    const desc = document.getElementById('ef-desc').value.trim();
+    const paidTo = document.getElementById('ef-paid-to').value.trim();
+    const amount = parseFloat(document.getElementById('ef-amount').value);
+    const purpose = document.getElementById('ef-purpose').value.trim();
+    
+    if (!desc) return showFormError('ef-desc-err', 'Required');
+    if (!paidTo) return showFormError('ef-paid-to-err', 'Required');
+    if (isNaN(amount) || amount <= 0) return showFormError('ef-amount-err', 'Valid amount required');
+    if (!purpose) return showFormError('ef-purpose-err', 'Required');
 
     const row = {
-      user_id: session.user.id,
-      description,
-      amount,
+      description: desc,
+      paid_to: paidTo,
       category: document.getElementById('ef-cat').value,
-      date: document.getElementById('ef-date').value,
-      paid_to,
+      date: document.getElementById('ef-date').value || today(),
       payment_mode: document.getElementById('ef-pm').value,
-      bill_attached: document.getElementById('ef-ba').value,
-      distance: parseFloat(document.getElementById('ef-dist').value) || null,
-      rate_per_km: parseFloat(document.getElementById('ef-rate').value) || null,
-      purpose: document.getElementById('ef-purpose').value.trim() || null,
-      notes: document.getElementById('ef-notes').value.trim() || null
+      amount,
+      purpose,
+      notes: document.getElementById('ef-notes').value.trim()
     };
 
-    const { data, error } = await dbOp(
+    const res = await dbOp(
       () => sb.from('expenses').insert(row).select().single(),
       'Failed to save expense'
     );
 
-    if (!error) {
-      expenses.unshift(data);
-      toast('Expense saved');
-      toggleForm('expense-form');
+    if (!res.error) {
+      expenses.unshift(res.data);
       renderAccounting();
+      toggleForm('expense-form');
+      toast('Expense saved');
     }
   } catch (err) {
     console.error('Save expense error:', err);
@@ -1859,6 +1789,7 @@ async function saveExpense() {
 
 async function delExpense(id) {
   try {
+    // Expense details UI moved to src/accounting.jsx
     const exp = expenses.find(e => e.id === id);
     const label = exp ? (exp.description || 'Unnamed expense') : 'Expense #' + id;
     const reason = await confirmDeletion('Expense', label);
@@ -1872,32 +1803,7 @@ async function delExpense(id) {
     console.error('Delete expense error:', err);
   }
 }
-
-
-
-        <div class="section-title">Purpose of Expense</div>
-        <div class="purpose-box">${sanitize(purpose)}</div>
-
-        ${notes ? '<div class="section-title">Additional Info / Notes</div><div class="purpose-box" style="background:#fff; border-style:solid; margin-bottom:30px;">' + sanitize(notes) + '</div>' : ''}
-
-        <div class="declaration">
-          <strong>Declaration:</strong> I hereby declare that the above expenses are incurred for official/business purposes and are accurate to the best of my knowledge.
-        </div>
-
-        <div class="signature-grid">
-          <div class="meta-item">
-            <div class="sig-line">Claimant Signature</div>
-            <div class="sig-meta">\${sanitize(paidTo)}</div>
-            <div class="sig-meta" style="margin-top:2px;">Date: \${claimDate}</div>
-          </div>
-          <div class="meta-item">
-            <div class="sig-line">Approved / Authorized By</div>
-            <div class="sig-meta">Finance & Operations Dept</div>
-            <div class="sig-meta" style="margin-top:2px;">Date: _________________</div>
-          </div>
-        </div>
-      </div>
-
+<div id="expense-details"></div>
 // ── Export ────────────────────────────────────────
 function exportData() {
   try {
