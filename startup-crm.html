@@ -1870,6 +1870,7 @@ async function rollbackStockDeltas(deltas) {
 
 async function sendInvoiceEmail(payload) {
   const token = session?.access_token || CONFIG.SUPABASE_ANON_KEY;
+  console.info('Sending invoice email payload:', payload);
   const res = await fetch(CONFIG.EMAIL_FUNCTION_URL, {
     method: 'POST',
     headers: {
@@ -1897,7 +1898,12 @@ async function sendInvoiceEmail(payload) {
     throw new Error(result.error || result.message || 'Email function did not confirm delivery');
   }
 
+  console.info('Invoice email function response:', result);
   return result;
+}
+
+function getEmailResponseId(result) {
+  return result?.id || result?.data?.id || result?.emailId || result?.messageId || result?.resendId || '';
 }
 
 async function emailInvoiceToContact(invoice) {
@@ -1934,15 +1940,26 @@ async function emailInvoiceToContact(invoice) {
     <p>Best regards,<br>Inuit Ice</p>
   `;
 
-  await sendInvoiceEmail({
+  const payload = {
+    from: 'info@inuitice.in',
+    to: contact.email,
     contactEmail: contact.email,
     subject,
+    text: bodyText,
+    html: bodyHtml,
     bodyText,
     bodyHtml,
     invoiceNumber: invoice.number,
     invoicePdfUrl: invoice.invoicePdfUrl || null
-  });
-  toast(`Email sent to ${contact.email}`);
+  };
+
+  const result = await sendInvoiceEmail(payload);
+  const emailId = getEmailResponseId(result);
+  if (emailId) {
+    toast(`Email sent to ${contact.email} (${emailId})`);
+  } else {
+    toast(`Email function accepted request, but returned no Resend id`);
+  }
 }
 
 async function saveInvoice(status) {
