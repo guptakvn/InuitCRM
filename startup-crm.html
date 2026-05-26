@@ -1873,61 +1873,6 @@ async function delExpense(id) {
   }
 }
 
-          body { padding: 0; background: none; }
-          .voucher-container { border: none; box-shadow: none; padding: 0; }
-          button { display: none; }
-        }
-      </style>
-    </head>
-    <body>
-      <div class="voucher-container">
-        <div class="header">
-          <div>
-            <div class="company-name">INUITICE ARTISANALS LLP</div>
-            <div class="voucher-title">EXPENSE REIMBURSEMENT VOUCHER</div>
-          </div>
-          <div style="text-align: right">
-            <div class="meta-label">Claim Date</div>
-            <div style="font-size: 16px; font-weight: 700; margin-top: 4px;">${claimDate}</div>
-          </div>
-        </div>
-
-        <div class="meta-grid">
-
-          <div class="meta-item">
-            <span class="meta-label">Payment Mode</span>
-            <span class="meta-value">${sanitize(pm)}</span>
-          </div>
-        </div>
-
-        <table>
-          <thead>
-            <tr>
-              <th style="width: 5%">S.No</th>
-              <th style="width: 15%">Date</th>
-              <th style="width: 35%">Description</th>
-              <th style="width: 15%">Category</th>
-              <th style="width: 10%">Bill Attached</th>
-              <th style="width: 10%" class="text-right">Distance (km)</th>
-              <th style="width: 10%" class="text-right">Rate/km (₹)</th>
-              <th style="width: 15%" class="text-right">Cost (₹)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>1</td>
-              <td>\${claimDate}</td>
-              <td style="font-weight: 600">\${sanitize(desc)}</td>
-              <td>\${sanitize(cat)}</td>
-              <td>\${sanitize(ba)}</td>
-              <td class="text-right">\${dist}</td>
-              <td class="text-right">\${rate}</td>
-              <td class="text-right" style="font-weight: 700">\${inr(amt)}</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <div class="total-section">
           <span class="total-label">Total Amount Claimed</span>
           <span class="total-value">\${inr(amt)}</span>
         </div>
@@ -1954,18 +1899,6 @@ async function delExpense(id) {
           </div>
         </div>
       </div>
-      <script>
-        window.onload = function() {
-          setTimeout(function() {
-            window.print();
-          }, 300);
-        };
-      </script>
-    </body>
-    </html>
-  \`);
-  printWindow.document.close();
-}
 
 // ── Export ────────────────────────────────────────
 function exportData() {
