@@ -1880,16 +1880,21 @@ async function sendInvoiceEmail(payload) {
     body: JSON.stringify(payload)
   });
 
+  const raw = await res.text();
   let result = null;
   try {
-    result = await res.json();
+    result = raw ? JSON.parse(raw) : null;
   } catch (_err) {
-    result = null;
+    result = raw;
   }
 
   if (!res.ok) {
-    const message = result?.error || result?.message || `Email function failed with status ${res.status}`;
+    const message = result?.error || result?.message || result || `Email function failed with status ${res.status}`;
     throw new Error(message);
+  }
+
+  if (result?.error || result?.success === false || result?.ok === false) {
+    throw new Error(result.error || result.message || 'Email function did not confirm delivery');
   }
 
   return result;
