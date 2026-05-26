@@ -1,0 +1,15 @@
+- [ ] Create `src/` folder and helper modules (`utils.js`, `supabase.js`)
+- [ ] Extract shared utilities into `src/utils.js`
+- [ ] Extract Supabase client into `src/supabase.js`
+- [ ] Move Accounting logic to `src/accounts.js` (initAccounts, loadExpenses, renderAccounting, delExpense, etc.)
+- [ ] Move Contacts logic to `src/contacts.js`
+- [ ] Move Invoices logic to `src/invoices.js`
+- [ ] Move Dashboard/navigation to `src/dashboard.js`
+- [ ] Move User/Profile logic to `src/userProfile.js`
+- [ ] Update `startup-crm.html`:
+  - Remove large inline script block
+  - Add placeholder `<div id="section-dashboard"></div>` etc.
+  - Add module loader script with `type="module"`
+- [ ] Verify app loads without syntax errors and all sections work
+- [ ] Test expense delete flow (`toast('Expense deleted')` works)
+- [ ] Commit changes (git add, commit)

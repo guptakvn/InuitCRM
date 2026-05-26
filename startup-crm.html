@@ -337,9 +337,9 @@ create policy "own" on expenses for all using (auth.uid()=user_id) with check (a
   </div>
 </div>
 
-<script>
-// ════════════════════════════════════════════════════
-// ⚙  CONFIGURATION — REPLACE THESE WITH YOUR VALUES
+<script type="module">
+import './src/app.js';
+// App logic moved to src/app.js
 // ════════════════════════════════════════════════════
 const CONFIG = {
   SUPABASE_URL: 'https://qcuzvatlfwsvjxuidpao.supabase.co',
