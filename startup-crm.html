@@ -242,7 +242,7 @@ create policy "own" on expenses for all using (auth.uid()=user_id) with check (a
         <div class="user-pill">
           <div class="user-avatar" id="user-avatar">?</div>
           <span class="user-email" id="user-email">loading…</span>
-          <button class="btn btn-sm btn-ghost" onclick="signOut()" title="Sign out" style="padding:4px 8px;font-size:11px">↩</button>
+          <button class="btn btn-sm btn-ghost" onclick="confirmSignOut()" title="Sign out" style="padding:4px 8px;font-size:11px">↩</button>
         </div>
       </div>
     </aside>
@@ -548,7 +548,25 @@ function showAuthMsg(msg, ok = false) {
   el.textContent = msg;
 }
 
+function confirmSignOut() {
+  const backdrop = document.createElement('div');
+  backdrop.id = 'logout-dialog';
+  backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:9999';
+  backdrop.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);padding:24px;width:320px;box-shadow:0 8px 32px rgba(0,0,0,0.18)">
+      <div style="font-size:15px;font-weight:600;margin-bottom:8px">Sign out?</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:20px">You will be returned to the login screen.</div>
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button class="btn" onclick="document.getElementById('logout-dialog').remove()">Cancel</button>
+        <button class="btn btn-danger" style="background:rgba(248,113,113,0.1)" onclick="signOut()">Sign out</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+}
+
 async function signOut() {
+  const dlg = document.getElementById('logout-dialog');
+  if (dlg) dlg.remove();
   try {
     await sb.auth.signOut();
     leads = contacts = invoices = expenses = [];
@@ -786,82 +804,98 @@ function renderContacts() {
       <td>${sanitize(c.address) || '—'}</td>
       <td>${sanitize(c.place_of_supply) || '—'}</td>
       <td>${sanitize(c.upi_id) || '—'}</td>
-      <td><button class="btn btn-sm btn-danger" onclick="delContact('${c.id}')">✕</button></td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-sm" style="border:1px solid var(--border2)" onclick="editContact('${c.id}')">✎ Edit</button>
+        <button class="btn btn-sm btn-danger" onclick="delContact('${c.id}')">✕</button>
+      </td>
     </tr>`).join('');
   } catch (err) {
     console.error('Failed to render contacts:', err);
   }
 }
 
-function buildContactForm() {
+function buildContactForm(contactToEdit = null) {
+  const c = contactToEdit || {};
+  const isEdit = !!contactToEdit;
+  const title = isEdit ? 'Edit contact' : 'Add contact';
+  const saveBtn = isEdit ? `<button class="btn btn-primary" onclick="updateContact('${c.id}')">Update contact</button>` : `<button class="btn btn-primary" onclick="saveContact()">Save contact</button>`;
+
   document.getElementById('contact-form').innerHTML = `
   <div class="modal-backdrop"><div class="modal">
-    <div class="modal-title">Add contact</div>
+    <div class="modal-title">${title}</div>
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Name *</label>
-        <input id="cf-name" placeholder="Full name">
+        <input id="cf-name" placeholder="Full name" value="${sanitize(c.name || '')}">
         <div class="form-error" id="cf-name-err"></div>
       </div>
       <div class="form-group">
         <label class="form-label">Company</label>
-        <input id="cf-co" placeholder="Company name">
+        <input id="cf-co" placeholder="Company name" value="${sanitize(c.company || '')}">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Phone</label>
-        <input id="cf-ph" placeholder="+91 98765 43210">
+        <input id="cf-ph" placeholder="+91 98765 43210" value="${sanitize(c.phone || '')}">
         <div class="form-error" id="cf-ph-err"></div>
       </div>
       <div class="form-group">
         <label class="form-label">Email</label>
-        <input id="cf-em" placeholder="name@company.com">
+        <input id="cf-em" placeholder="name@company.com" value="${sanitize(c.email || '')}">
         <div class="form-error" id="cf-em-err"></div>
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">GST number</label>
-        <input id="cf-gst" placeholder="29ABCDE1234F1Z5" style="font-family:'DM Mono',monospace">
+        <input id="cf-gst" placeholder="29ABCDE1234F1Z5" style="font-family:'DM Mono',monospace" value="${sanitize(c.gst || '')}">
         <div class="form-error" id="cf-gst-err"></div>
       </div>
       <div class="form-group">
         <label class="form-label">City</label>
-        <input id="cf-city" placeholder="Hyderabad">
+        <input id="cf-city" placeholder="Hyderabad" value="${sanitize(c.city || (isEdit ? '' : 'Hyderabad'))}">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">State</label>
-        <input id="cf-state" placeholder="Telangana">
+        <input id="cf-state" placeholder="Telangana" value="${sanitize(c.state || (isEdit ? '' : 'Telangana'))}">
       </div>
       <div class="form-group">
         <label class="form-label">State Code</label>
-        <input id="cf-scode" placeholder="36">
+        <input id="cf-scode" placeholder="36" value="${sanitize(c.state_code || (isEdit ? '' : '36'))}">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Address</label>
-        <input id="cf-addr" placeholder="123 Startup St">
+        <input id="cf-addr" placeholder="123 Startup St" value="${sanitize(c.address || '')}">
       </div>
       <div class="form-group">
         <label class="form-label">Place of Supply</label>
-        <input id="cf-pos" placeholder="Telangana">
+        <input id="cf-pos" placeholder="Telangana" value="${sanitize(c.place_of_supply || (isEdit ? '' : 'Telangana'))}">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Our UPI ID</label>
-        <input id="cf-upi" placeholder="startup@upi">
+        <input id="cf-upi" placeholder="startup@upi" value="${sanitize(c.upi_id || '')}">
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="toggleForm('contact-form')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveContact()">Save contact</button>
+      ${saveBtn}
     </div>
   </div></div>`;
+}
+
+function editContact(id) {
+  const c = contacts.find(x => x.id === id);
+  if (!c) return;
+  const el = document.getElementById('contact-form');
+  if (!el.innerHTML.trim()) el.innerHTML = ' '; // ensure form area is open
+  buildContactForm(c);
 }
 
 async function saveContact() {
@@ -922,6 +956,54 @@ async function saveContact() {
     }
   } catch (err) {
     console.error('Save contact error:', err);
+  }
+}
+
+async function updateContact(id) {
+  try {
+    const name = document.getElementById('cf-name').value.trim();
+    if (!validators.name(name)) { showFormError('cf-name-err', 'Name is required'); return; }
+    hideFormError('cf-name-err');
+
+    const email = document.getElementById('cf-em').value.trim();
+    if (email && !validators.email(email)) { showFormError('cf-em-err', 'Please enter a valid email'); return; }
+    hideFormError('cf-em-err');
+
+    const phone = document.getElementById('cf-ph').value.trim();
+    if (phone && !validators.phone(phone)) { showFormError('cf-ph-err', 'Phone must be 10 digits'); return; }
+    hideFormError('cf-ph-err');
+
+    const gst = document.getElementById('cf-gst').value.trim();
+    if (gst && !validators.gst(gst)) { showFormError('cf-gst-err', 'Invalid GST format'); return; }
+    hideFormError('cf-gst-err');
+
+    const updates = {
+      name,
+      company: document.getElementById('cf-co').value.trim(),
+      phone,
+      email,
+      gst,
+      city: document.getElementById('cf-city').value.trim(),
+      state: document.getElementById('cf-state').value.trim(),
+      state_code: document.getElementById('cf-scode').value.trim(),
+      address: document.getElementById('cf-addr').value.trim(),
+      place_of_supply: document.getElementById('cf-pos').value.trim(),
+      upi_id: document.getElementById('cf-upi').value.trim()
+    };
+
+    const { data, error } = await dbOp(
+      () => sb.from('contacts').update(updates).eq('id', id).select().single(),
+      'Failed to update contact'
+    );
+
+    if (!error) {
+      contacts = contacts.map(c => c.id === id ? data : c);
+      toast('Contact updated');
+      toggleForm('contact-form');
+      renderContacts();
+    }
+  } catch (err) {
+    console.error('Update contact error:', err);
   }
 }
 
