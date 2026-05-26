@@ -454,6 +454,21 @@ function monthSortKey(dateStr) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function getMaxInvoiceNumber() {
+  return invoices.reduce((max, invoice) => {
+    const parsed = parseInt(invoice.number, 10);
+    return !isNaN(parsed) && parsed > max ? parsed : max;
+  }, 260400);
+}
+
+function getNextInvoiceNumber() {
+  return Math.max(invCounter, getMaxInvoiceNumber() + 1, 260401);
+}
+
+function syncInvoiceCounter() {
+  invCounter = getNextInvoiceNumber();
+}
+
 function showFormError(elementId, message) {
   const errorEl = document.getElementById(elementId);
   if (errorEl) {
@@ -1256,7 +1271,7 @@ async function saveContact() {
     );
 
     if (!error) {
-      contacts.unshift(data);
+      contacts.unshift(data || { ...row, id: 'local-' + Date.now() });
       toast('Contact saved');
       toggleForm('contact-form');
       renderContacts();
@@ -1583,7 +1598,7 @@ async function saveInvoice(status) {
 
     const total = sub + gst_amt;
     
-    let number = String(invCounter);
+    let number = String(getNextInvoiceNumber());
     if (currentEditInvoiceId) {
        const existing = invoices.find(i => i.id === currentEditInvoiceId);
        if (existing) number = existing.number;
@@ -1621,11 +1636,11 @@ async function saveInvoice(status) {
 
     if (!error) {
       if (currentEditInvoiceId) {
-        invoices = invoices.map(i => i.id === currentEditInvoiceId ? data : i);
+        invoices = invoices.map(i => i.id === currentEditInvoiceId ? (data || { ...i, ...row }) : i);
         toast(`Invoice updated`);
       } else {
-        invCounter++;
-        invoices.unshift(data);
+        invoices.unshift(data || { ...row, id: 'local-' + Date.now() });
+        syncInvoiceCounter();
         toast(`Invoice ${status.toLowerCase()}`);
       }
       currentEditInvoiceId = null;
@@ -2002,11 +2017,7 @@ async function loadAndShowApp() {
 
     await Promise.all([fetchLeads(), fetchContacts(), fetchInvoices(), fetchExpenses()]);
 
-    const maxInv = invoices.length > 0 ? Math.max(...invoices.map(i => {
-      const parsed = parseInt(i.number);
-      return isNaN(parsed) ? 0 : parsed;
-    })) : 0;
-    invCounter = maxInv >= 260401 ? maxInv + 1 : 260401;
+    syncInvoiceCounter();
     setSyncStatus('ok', '● Synced');
     renderDashboard();
   } catch (err) {
