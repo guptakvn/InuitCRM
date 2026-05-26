@@ -190,7 +190,7 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
       <a href="#" onclick="toggleSqlBlock();return false">▶ Show SQL to run</a>
       <pre id="sql-block" style="display:none;margin-top:8px;background:var(--bg4);padding:10px;border-radius:6px;font-size:10px;overflow:auto;color:var(--info);line-height:1.6">
 create table leads (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, name text, contact text, value numeric default 0, stage text default 'New lead', notes text, created_at timestamp default now());
-create table contacts (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, name text, company text, phone text, email text, gst text, city text, created_at timestamp default now());
+create table contacts (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, name text, company text, phone text, email text, gst text, city text, state text, state_code text, address text, place_of_supply text, upi_id text, created_at timestamp default now());
 create table invoices (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, number text, client text, date text, subtotal numeric default 0, gst_rate numeric default 18, gst_amt numeric default 0, total numeric default 0, status text default 'Draft', items jsonb default '[]'::jsonb, created_at timestamp default now());
 create table expenses (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, description text, amount numeric default 0, category text, date text, created_at timestamp default now());
 alter table leads enable row level security;
@@ -284,7 +284,7 @@ create policy "own" on expenses for all using (auth.uid()=user_id) with check (a
           <div class="card">
             <div class="card-head"><span class="card-title">Contacts</span><button class="btn btn-primary btn-sm" onclick="toggleForm('contact-form')">+ Add contact</button></div>
             <div id="contact-form"></div>
-            <div class="table-wrap"><table><thead><tr><th>Name</th><th>Company</th><th>Phone</th><th>Email</th><th>GST No.</th><th>City</th><th></th></tr></thead><tbody id="contacts-body"></tbody></table></div>
+            <div class="table-wrap"><table><thead><tr><th>Name</th><th>Company</th><th>Phone</th><th>Email</th><th>GST No.</th><th>City</th><th>State</th><th>State Code</th><th>Address</th><th>Place of Supply</th><th>UPI ID</th><th></th></tr></thead><tbody id="contacts-body"></tbody></table></div>
           </div>
         </div>
 
@@ -771,7 +771,7 @@ function renderContacts() {
   try {
     const tbody = document.getElementById('contacts-body');
     if (!contacts.length) {
-      tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">No contacts yet</div></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="12"><div class="empty-state">No contacts yet</div></td></tr>`;
       return;
     }
     tbody.innerHTML = contacts.map(c => `<tr>
@@ -781,6 +781,11 @@ function renderContacts() {
       <td style="color:var(--info)">${sanitize(c.email) || '—'}</td>
       <td class="td-mono">${sanitize(c.gst) || '—'}</td>
       <td>${sanitize(c.city) || '—'}</td>
+      <td>${sanitize(c.state) || '—'}</td>
+      <td>${sanitize(c.state_code) || '—'}</td>
+      <td>${sanitize(c.address) || '—'}</td>
+      <td>${sanitize(c.place_of_supply) || '—'}</td>
+      <td>${sanitize(c.upi_id) || '—'}</td>
       <td><button class="btn btn-sm btn-danger" onclick="delContact('${c.id}')">✕</button></td>
     </tr>`).join('');
   } catch (err) {
@@ -824,6 +829,32 @@ function buildContactForm() {
       <div class="form-group">
         <label class="form-label">City</label>
         <input id="cf-city" placeholder="Hyderabad">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">State</label>
+        <input id="cf-state" placeholder="Telangana">
+      </div>
+      <div class="form-group">
+        <label class="form-label">State Code</label>
+        <input id="cf-scode" placeholder="36">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Address</label>
+        <input id="cf-addr" placeholder="123 Startup St">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Place of Supply</label>
+        <input id="cf-pos" placeholder="Telangana">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Our UPI ID</label>
+        <input id="cf-upi" placeholder="startup@upi">
       </div>
     </div>
     <div class="modal-footer">
@@ -870,7 +901,12 @@ async function saveContact() {
       phone,
       email,
       gst,
-      city: document.getElementById('cf-city').value.trim()
+      city: document.getElementById('cf-city').value.trim(),
+      state: document.getElementById('cf-state').value.trim(),
+      state_code: document.getElementById('cf-scode').value.trim(),
+      address: document.getElementById('cf-addr').value.trim(),
+      place_of_supply: document.getElementById('cf-pos').value.trim(),
+      upi_id: document.getElementById('cf-upi').value.trim()
     };
 
     const { data, error } = await dbOp(
