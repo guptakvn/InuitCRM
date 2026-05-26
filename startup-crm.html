@@ -190,7 +190,7 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
       <a href="#" onclick="toggleSqlBlock();return false">▶ Show SQL to run</a>
       <pre id="sql-block" style="display:none;margin-top:8px;background:var(--bg4);padding:10px;border-radius:6px;font-size:10px;overflow:auto;color:var(--info);line-height:1.6">
 create table leads (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, name text, contact text, value numeric default 0, stage text default 'New lead', notes text, created_at timestamp default now());
-create table contacts (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, name text, company text, phone text, email text, gst text, city text, state text, state_code text, address text, place_of_supply text, upi_id text, created_at timestamp default now());
+create table contacts (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, customer_id integer, company_code text, customer_type text default 'Company', onboard_date text, pan_no text, name text, company text, phone text, email text, gst text, city text, state text, state_code text, address text, place_of_supply text, upi_id text, created_at timestamp default now());
 create table invoices (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, number text, client text, date text, subtotal numeric default 0, gst_rate numeric default 18, gst_amt numeric default 0, total numeric default 0, status text default 'Draft', items jsonb default '[]'::jsonb, created_at timestamp default now());
 create table expenses (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, description text, amount numeric default 0, category text, date text, created_at timestamp default now());
 alter table leads enable row level security;
@@ -284,7 +284,7 @@ create policy "own" on expenses for all using (auth.uid()=user_id) with check (a
           <div class="card">
             <div class="card-head"><span class="card-title">Contacts</span><button class="btn btn-primary btn-sm" onclick="toggleForm('contact-form')">+ Add contact</button></div>
             <div id="contact-form"></div>
-            <div class="table-wrap"><table><thead><tr><th>Name</th><th>Company</th><th>Phone</th><th>Email</th><th>GST No.</th><th>City</th><th>State</th><th>State Code</th><th>Address</th><th>Place of Supply</th><th>UPI ID</th><th></th></tr></thead><tbody id="contacts-body"></tbody></table></div>
+            <div class="table-wrap"><table><thead><tr><th>Cust ID</th><th>Name</th><th>Type</th><th>Company</th><th>Phone / Email</th><th>GST / PAN</th><th>Location</th><th>Address</th><th>Onboarded</th><th>UPI ID</th><th></th></tr></thead><tbody id="contacts-body"></tbody></table></div>
           </div>
         </div>
 
@@ -382,8 +382,27 @@ const validators = {
   gst: (v) => /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(v),
   phone: (v) => /^[0-9]{10}$/.test(v),
   name: (v) => v && v.trim().length > 0,
-  amount: (v) => !isNaN(v) && parseFloat(v) >= 0
+  amount: (v) => !isNaN(v) && parseFloat(v) >= 0,
+  pan: (v) => /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(v)
 };
+
+// ── Input Sanitization Helpers ────────────────────
+function sanitizeIntegerInput(input) {
+  input.value = input.value.replace(/[^0-9]/g, '');
+}
+
+function sanitizeFloatInput(input) {
+  let val = input.value.replace(/[^0-9.]/g, '');
+  const parts = val.split('.');
+  if (parts.length > 2) {
+    val = parts[0] + '.' + parts.slice(1).join('');
+  }
+  input.value = val;
+}
+
+function sanitizeAlphanumericInput(input) {
+  input.value = input.value.replace(/[^a-zA-Z0-9]/g, '');
+}
 
 function showFormError(elementId, message) {
   const errorEl = document.getElementById(elementId);
@@ -723,7 +742,7 @@ function buildLeadForm() {
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Deal value (₹)</label>
-        <input id="lf-val" type="number" placeholder="50000" min="0">
+        <input id="lf-val" type="text" inputmode="decimal" placeholder="50000" oninput="sanitizeFloatInput(this)">
         <div class="form-error" id="lf-val-err"></div>
       </div>
       <div class="form-group">
@@ -789,29 +808,58 @@ function renderContacts() {
   try {
     const tbody = document.getElementById('contacts-body');
     if (!contacts.length) {
-      tbody.innerHTML = `<tr><td colspan="12"><div class="empty-state">No contacts yet</div></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state">No contacts yet</div></td></tr>`;
       return;
     }
-    tbody.innerHTML = contacts.map(c => `<tr>
-      <td style="font-weight:500">${sanitize(c.name)}</td>
-      <td>${sanitize(c.company) || '—'}</td>
-      <td>${sanitize(c.phone) || '—'}</td>
-      <td style="color:var(--info)">${sanitize(c.email) || '—'}</td>
-      <td class="td-mono">${sanitize(c.gst) || '—'}</td>
-      <td>${sanitize(c.city) || '—'}</td>
-      <td>${sanitize(c.state) || '—'}</td>
-      <td>${sanitize(c.state_code) || '—'}</td>
-      <td>${sanitize(c.address) || '—'}</td>
-      <td>${sanitize(c.place_of_supply) || '—'}</td>
-      <td>${sanitize(c.upi_id) || '—'}</td>
-      <td style="white-space:nowrap">
-        <button class="btn btn-sm" style="border:1px solid var(--border2)" onclick="editContact('${c.id}')">✎ Edit</button>
-        <button class="btn btn-sm btn-danger" onclick="delContact('${c.id}')">✕</button>
-      </td>
-    </tr>`).join('');
+    tbody.innerHTML = contacts.map(c => {
+      const onboardStr = c.onboard_date || '—';
+      const companyCodeStr = c.company_code ? ` (Code: ${sanitize(c.company_code)})` : '';
+      const panStr = c.pan_no ? `PAN: ${sanitize(c.pan_no)}` : 'PAN: —';
+      const scodeStr = c.state_code ? ` (${sanitize(c.state_code)})` : '';
+      
+      return `<tr>
+        <td class="td-mono" style="font-weight:500">${c.customer_id || '—'}</td>
+        <td style="font-weight:500">${sanitize(c.name || '—')}</td>
+        <td><span class="badge ${c.customer_type === 'Individual' ? 'badge-draft' : 'badge-new'}">${c.customer_type || 'Company'}</span></td>
+        <td>
+          <div>${sanitize(c.company) || '—'}</div>
+          <div style="font-size:11px;color:var(--text3)">${companyCodeStr}</div>
+        </td>
+        <td>
+          <div>${sanitize(c.phone) || '—'}</div>
+          <div style="font-size:11px;color:var(--info)">${sanitize(c.email) || '—'}</div>
+        </td>
+        <td>
+          <div class="td-mono">${sanitize(c.gst) || '—'}</div>
+          <div class="td-mono" style="font-size:11px;color:var(--text3)">${panStr}</div>
+        </td>
+        <td>
+          <div>${sanitize(c.city) || '—'}</div>
+          <div style="font-size:11px;color:var(--text3)">${sanitize(c.state) || '—'}${scodeStr}</div>
+        </td>
+        <td>
+          <div>${sanitize(c.address) || '—'}</div>
+          <div style="font-size:11px;color:var(--text3)">POS: ${sanitize(c.place_of_supply) || '—'}</div>
+        </td>
+        <td style="white-space:nowrap">${onboardStr}</td>
+        <td>${sanitize(c.upi_id) || '—'}</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-sm" style="border:1px solid var(--border2)" onclick="editContact('${c.id}')">✎ Edit</button>
+          <button class="btn btn-sm btn-danger" onclick="delContact('${c.id}')">✕</button>
+        </td>
+      </tr>`;
+    }).join('');
   } catch (err) {
     console.error('Failed to render contacts:', err);
   }
+}
+
+function getNextCustomerId() {
+  const localMax = contacts.reduce((max, c) => {
+    const cid = parseInt(c.customer_id);
+    return (!isNaN(cid) && cid > max) ? cid : max;
+  }, 1200424);
+  return localMax + 1;
 }
 
 function buildContactForm(contactToEdit = null) {
@@ -820,12 +868,31 @@ function buildContactForm(contactToEdit = null) {
   const title = isEdit ? 'Edit contact' : 'Add contact';
   const saveBtn = isEdit ? `<button class="btn btn-primary" onclick="updateContact('${c.id}')">Update contact</button>` : `<button class="btn btn-primary" onclick="saveContact()">Save contact</button>`;
 
+  const defaultOnboardDate = c.onboard_date || today();
+  const defaultCustId = c.customer_id || getNextCustomerId();
+  const ctype = c.customer_type || 'Company';
+
   document.getElementById('contact-form').innerHTML = `
-  <div class="modal-backdrop"><div class="modal">
+  <div class="modal-backdrop"><div class="modal" style="max-width:650px">
     <div class="modal-title">${title}</div>
+    
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Name *</label>
+        <label class="form-label">Customer ID (Auto-generated)</label>
+        <input id="cf-custid" type="text" readonly value="${defaultCustId}" style="background:var(--bg4);font-family:'DM Mono',monospace;font-weight:500">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Customer Type</label>
+        <select id="cf-type">
+          <option value="Company" ${ctype === 'Company' ? 'selected' : ''}>Company</option>
+          <option value="Individual" ${ctype === 'Individual' ? 'selected' : ''}>Individual</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Name</label>
         <input id="cf-name" placeholder="Full name" value="${sanitize(c.name || '')}">
         <div class="form-error" id="cf-name-err"></div>
       </div>
@@ -834,55 +901,79 @@ function buildContactForm(contactToEdit = null) {
         <input id="cf-co" placeholder="Company name" value="${sanitize(c.company || '')}">
       </div>
     </div>
+
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Phone</label>
-        <input id="cf-ph" placeholder="+91 98765 43210" value="${sanitize(c.phone || '')}">
+        <label class="form-label">Company Code</label>
+        <input id="cf-cocode" placeholder="Alphanumeric code" value="${sanitize(c.company_code || '')}" oninput="sanitizeAlphanumericInput(this)">
+        <div class="form-error" id="cf-cocode-err"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Customer Onboard Date</label>
+        <input id="cf-onboard" type="date" value="${defaultOnboardDate}">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Phone *</label>
+        <input id="cf-ph" placeholder="10-digit number" value="${sanitize(c.phone || '')}" oninput="sanitizeIntegerInput(this)">
         <div class="form-error" id="cf-ph-err"></div>
       </div>
       <div class="form-group">
-        <label class="form-label">Email</label>
+        <label class="form-label">Email *</label>
         <input id="cf-em" placeholder="name@company.com" value="${sanitize(c.email || '')}">
         <div class="form-error" id="cf-em-err"></div>
       </div>
     </div>
+
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">GST number</label>
-        <input id="cf-gst" placeholder="29ABCDE1234F1Z5" style="font-family:'DM Mono',monospace" value="${sanitize(c.gst || '')}">
+        <input id="cf-gst" placeholder="29ABCDE1234F1Z5" style="font-family:'DM Mono',monospace;text-transform:uppercase" value="${sanitize(c.gst || '')}">
         <div class="form-error" id="cf-gst-err"></div>
       </div>
+      <div class="form-group">
+        <label class="form-label">PAN No. of Customer</label>
+        <input id="cf-pan" placeholder="ABCDE1234F" style="font-family:'DM Mono',monospace;text-transform:uppercase" value="${sanitize(c.pan_no || '')}">
+        <div class="form-error" id="cf-pan-err"></div>
+      </div>
+    </div>
+
+    <div class="form-row">
       <div class="form-group">
         <label class="form-label">City</label>
         <input id="cf-city" placeholder="Hyderabad" value="${sanitize(c.city || (isEdit ? '' : 'Hyderabad'))}">
       </div>
-    </div>
-    <div class="form-row">
       <div class="form-group">
         <label class="form-label">State</label>
         <input id="cf-state" placeholder="Telangana" value="${sanitize(c.state || (isEdit ? '' : 'Telangana'))}">
       </div>
-      <div class="form-group">
-        <label class="form-label">State Code</label>
-        <input id="cf-scode" placeholder="36" value="${sanitize(c.state_code || (isEdit ? '' : '36'))}">
-      </div>
     </div>
+
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Address</label>
-        <input id="cf-addr" placeholder="123 Startup St" value="${sanitize(c.address || '')}">
+        <label class="form-label">State Code</label>
+        <input id="cf-scode" placeholder="36" value="${sanitize(c.state_code || (isEdit ? '' : '36'))}" oninput="sanitizeIntegerInput(this)">
+        <div class="form-error" id="cf-scode-err"></div>
       </div>
       <div class="form-group">
         <label class="form-label">Place of Supply</label>
         <input id="cf-pos" placeholder="Telangana" value="${sanitize(c.place_of_supply || (isEdit ? '' : 'Telangana'))}">
       </div>
     </div>
+
     <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Address</label>
+        <input id="cf-addr" placeholder="123 Startup St" value="${sanitize(c.address || '')}">
+      </div>
       <div class="form-group">
         <label class="form-label">Our UPI ID</label>
         <input id="cf-upi" placeholder="startup@upi" value="${sanitize(c.upi_id || '')}">
       </div>
     </div>
+
     <div class="modal-footer">
       <button class="btn" onclick="toggleForm('contact-form')">Cancel</button>
       ${saveBtn}
@@ -900,38 +991,66 @@ function editContact(id) {
 
 async function saveContact() {
   try {
-    const name = document.getElementById('cf-name').value.trim();
-    if (!validators.name(name)) {
-      showFormError('cf-name-err', 'Name is required');
+    const customer_id = parseInt(document.getElementById('cf-custid').value);
+    const customer_type = document.getElementById('cf-type').value;
+    const company_code = document.getElementById('cf-cocode').value.trim();
+    const onboard_date = document.getElementById('cf-onboard').value;
+
+    const company = document.getElementById('cf-co').value.trim();
+    let name = document.getElementById('cf-name').value.trim();
+    
+    // Validate phone (mandatory)
+    const phone = document.getElementById('cf-ph').value.trim();
+    if (!phone) {
+      showFormError('cf-ph-err', 'Mobile number is required');
       return;
     }
-    hideFormError('cf-name-err');
+    if (!validators.phone(phone)) {
+      showFormError('cf-ph-err', 'Phone must be exactly 10 digits');
+      return;
+    }
+    hideFormError('cf-ph-err');
 
+    // Validate email (mandatory)
     const email = document.getElementById('cf-em').value.trim();
-    if (email && !validators.email(email)) {
+    if (!email) {
+      showFormError('cf-em-err', 'Email ID is required');
+      return;
+    }
+    if (!validators.email(email)) {
       showFormError('cf-em-err', 'Please enter a valid email');
       return;
     }
     hideFormError('cf-em-err');
 
-    const phone = document.getElementById('cf-ph').value.trim();
-    if (phone && !validators.phone(phone)) {
-      showFormError('cf-ph-err', 'Phone must be 10 digits');
-      return;
+    // Name fallback
+    if (!name) {
+      name = company || `Customer ${customer_id}`;
     }
-    hideFormError('cf-ph-err');
 
-    const gst = document.getElementById('cf-gst').value.trim();
+    const gst = document.getElementById('cf-gst').value.trim().toUpperCase();
     if (gst && !validators.gst(gst)) {
       showFormError('cf-gst-err', 'Invalid GST format');
       return;
     }
     hideFormError('cf-gst-err');
 
+    const pan_no = document.getElementById('cf-pan').value.trim().toUpperCase();
+    if (pan_no && !validators.pan(pan_no)) {
+      showFormError('cf-pan-err', 'Invalid PAN format');
+      return;
+    }
+    hideFormError('cf-pan-err');
+
     const row = {
       user_id: session.user.id,
+      customer_id,
+      customer_type,
+      company_code,
+      onboard_date,
+      pan_no,
       name,
-      company: document.getElementById('cf-co').value.trim(),
+      company,
       phone,
       email,
       gst,
@@ -961,25 +1080,65 @@ async function saveContact() {
 
 async function updateContact(id) {
   try {
-    const name = document.getElementById('cf-name').value.trim();
-    if (!validators.name(name)) { showFormError('cf-name-err', 'Name is required'); return; }
-    hideFormError('cf-name-err');
+    const customer_id = parseInt(document.getElementById('cf-custid').value);
+    const customer_type = document.getElementById('cf-type').value;
+    const company_code = document.getElementById('cf-cocode').value.trim();
+    const onboard_date = document.getElementById('cf-onboard').value;
 
-    const email = document.getElementById('cf-em').value.trim();
-    if (email && !validators.email(email)) { showFormError('cf-em-err', 'Please enter a valid email'); return; }
-    hideFormError('cf-em-err');
+    const company = document.getElementById('cf-co').value.trim();
+    let name = document.getElementById('cf-name').value.trim();
 
+    // Validate phone (mandatory)
     const phone = document.getElementById('cf-ph').value.trim();
-    if (phone && !validators.phone(phone)) { showFormError('cf-ph-err', 'Phone must be 10 digits'); return; }
+    if (!phone) {
+      showFormError('cf-ph-err', 'Mobile number is required');
+      return;
+    }
+    if (!validators.phone(phone)) {
+      showFormError('cf-ph-err', 'Phone must be exactly 10 digits');
+      return;
+    }
     hideFormError('cf-ph-err');
 
-    const gst = document.getElementById('cf-gst').value.trim();
-    if (gst && !validators.gst(gst)) { showFormError('cf-gst-err', 'Invalid GST format'); return; }
+    // Validate email (mandatory)
+    const email = document.getElementById('cf-em').value.trim();
+    if (!email) {
+      showFormError('cf-em-err', 'Email ID is required');
+      return;
+    }
+    if (!validators.email(email)) {
+      showFormError('cf-em-err', 'Please enter a valid email');
+      return;
+    }
+    hideFormError('cf-em-err');
+
+    // Name fallback
+    if (!name) {
+      name = company || `Customer ${customer_id}`;
+    }
+
+    const gst = document.getElementById('cf-gst').value.trim().toUpperCase();
+    if (gst && !validators.gst(gst)) {
+      showFormError('cf-gst-err', 'Invalid GST format');
+      return;
+    }
     hideFormError('cf-gst-err');
 
+    const pan_no = document.getElementById('cf-pan').value.trim().toUpperCase();
+    if (pan_no && !validators.pan(pan_no)) {
+      showFormError('cf-pan-err', 'Invalid PAN format');
+      return;
+    }
+    hideFormError('cf-pan-err');
+
     const updates = {
+      customer_id,
+      customer_type,
+      company_code,
+      onboard_date,
+      pan_no,
       name,
-      company: document.getElementById('cf-co').value.trim(),
+      company,
       phone,
       email,
       gst,
@@ -1129,12 +1288,12 @@ function addLine(item = null) {
 
   d.innerHTML = `
     <input placeholder="Item / service" id="il-d${i}" value="${desc}">
-    <input type="number" value="${qty}" id="il-q${i}" oninput="calcLine(${i})" style="text-align:right">
-    <input type="number" placeholder="0" id="il-r${i}" value="${rate}" oninput="calcLine(${i})" style="text-align:right">
+    <input type="text" inputmode="numeric" value="${qty}" id="il-q${i}" oninput="sanitizeIntegerInput(this);calcLine(${i})" style="text-align:right">
+    <input type="text" inputmode="decimal" placeholder="0" id="il-r${i}" value="${rate}" oninput="sanitizeFloatInput(this);calcLine(${i})" style="text-align:right">
     <select id="il-g${i}" onchange="calcLine(${i})" style="padding:6px 4px;font-size:12px;background:var(--bg3)">
       <option value="5" selected>5%</option>
     </select>
-    <input type="number" readonly id="il-a${i}" value="${amt}" style="text-align:right;background:var(--bg4)">
+    <input type="text" readonly id="il-a${i}" value="${amt}" style="text-align:right;background:var(--bg4)">
     <button class="btn btn-sm btn-danger" onclick="delLine(${i})" style="padding:3px 6px">✕</button>`;
   document.getElementById('inv-lines').appendChild(d);
 }
@@ -1228,7 +1387,7 @@ async function saveInvoice(status) {
 
     const total = sub + gst_amt;
     
-    let number = 'INV-' + String(invCounter).padStart(4, '0');
+    let number = String(invCounter);
     if (currentEditInvoiceId) {
        const existing = invoices.find(i => i.id === currentEditInvoiceId);
        if (existing) number = existing.number;
@@ -1367,7 +1526,7 @@ function buildExpenseForm() {
       </div>
       <div class="form-group">
         <label class="form-label">Amount (₹)</label>
-        <input id="ef-amt" type="number" placeholder="5000" min="0">
+        <input id="ef-amt" type="text" inputmode="decimal" placeholder="5000" oninput="sanitizeFloatInput(this)">
         <div class="form-error" id="ef-amt-err"></div>
       </div>
     </div>
@@ -1521,7 +1680,11 @@ async function loadAndShowApp() {
 
     await Promise.all([fetchLeads(), fetchContacts(), fetchInvoices(), fetchExpenses()]);
 
-    invCounter = invoices.length > 0 ? Math.max(...invoices.map(i => parseInt(i.number?.replace('INV-', '') || 0))) + 1 : 1;
+    const maxInv = invoices.length > 0 ? Math.max(...invoices.map(i => {
+      const parsed = parseInt(i.number);
+      return isNaN(parsed) ? 0 : parsed;
+    })) : 0;
+    invCounter = maxInv >= 260401 ? maxInv + 1 : 260401;
     setSyncStatus('ok', '● Synced');
     renderDashboard();
   } catch (err) {
