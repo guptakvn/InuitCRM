@@ -1389,8 +1389,7 @@ function renderInvoices() {
         ${status !== 'Paid' ? `<select class="status-select" onchange="updateInvoiceStatus('${inv.id}', this.value)" style="margin-top:6px"><option value="">Move to...</option>${statusOptions}</select>` : ''}
       </td>
       <td>
-        ${status !== 'Paid' ? `<button class="btn btn-sm btn-success" onclick="markPaid('${inv.id}')">✓ Mark paid</button>
-          <button class="btn btn-sm" style="border:1px solid var(--border2)" onclick="editInvoice('${inv.id}')">✎ Edit</button>
+        ${status !== 'Paid' ? `<button class="btn btn-sm" style="border:1px solid var(--border2)" onclick="editInvoice('${inv.id}')">✎ Edit</button>
           <button class="btn btn-sm btn-danger" onclick="delInvoice('${inv.id}')">✕</button>` : '<span style="font-size:12px;color:var(--text3)">Closed</span>'}
       </td>
     </tr>`;
