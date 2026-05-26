@@ -111,6 +111,21 @@ tr:hover td{background:rgba(0,0,0,0.02)}
 .p-card-actions{display:flex;gap:4px;margin-top:8px}
 .p-card-actions select{flex:1;font-size:11px;padding:3px 6px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text2);font-family:'DM Sans',sans-serif}
 
+/* ── Delete Confirmation Modal ── */
+.del-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;animation:fadeIn 0.15s ease}
+.del-modal{background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);padding:24px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.4)}
+.del-modal h3{font-size:15px;font-weight:600;margin:0 0 4px;color:var(--danger)}
+.del-modal p{font-size:12px;color:var(--text3);margin:0 0 16px}
+.del-modal label{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px}
+.del-modal textarea{width:100%;min-height:70px;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;resize:vertical}
+.del-modal .del-actions{display:flex;gap:8px;margin-top:16px;justify-content:flex-end}
+.del-modal .del-actions button{padding:8px 18px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;border:none;font-family:'DM Sans',sans-serif;transition:all 0.15s ease}
+.del-modal .btn-cancel{background:var(--bg3);color:var(--text2);border:1px solid var(--border)}
+.del-modal .btn-cancel:hover{background:var(--border)}
+.del-modal .btn-del{background:var(--danger);color:#fff}
+.del-modal .btn-del:hover{opacity:0.85}
+.del-modal .btn-del:disabled{opacity:0.4;cursor:not-allowed}
+
 /* ── Forms ── */
 .modal-backdrop{background:rgba(0,0,0,0.5);padding:16px;border-radius:var(--radius-lg);display:flex;align-items:flex-start;justify-content:center;margin-bottom:14px}
 .modal{background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);padding:20px;width:100%;max-width:580px}
@@ -167,6 +182,7 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
 <body>
 
 <div id="toast"></div>
+<div id="delete-modal"></div>
 
 <!-- Loading -->
 <div class="loading-overlay" id="loading">
@@ -190,7 +206,7 @@ textarea{resize:vertical;min-height:70px;line-height:1.5}
       <a href="#" onclick="toggleSqlBlock();return false">▶ Show SQL to run</a>
       <pre id="sql-block" style="display:none;margin-top:8px;background:var(--bg4);padding:10px;border-radius:6px;font-size:10px;overflow:auto;color:var(--info);line-height:1.6">
 create table leads (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, name text, contact text, value numeric default 0, stage text default 'New lead', notes text, created_at timestamp default now());
-create table contacts (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, customer_id integer, company_code text, customer_type text default 'Company', onboard_date text, pan_no text, name text, company text, phone text, email text, gst text, city text, state text, state_code text, address text, place_of_supply text, upi_id text, created_at timestamp default now());
+create table contacts (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, customer_id integer, company_code text, customer_type text default 'Company', onboard_date text, pan_no text, name text, company text, phone text, email text, gst text, city text, state text, state_code text, address text, place_of_supply text, upi_id text, remarks text, created_at timestamp default now());
 create table invoices (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, number text, client text, date text, subtotal numeric default 0, gst_rate numeric default 18, gst_amt numeric default 0, total numeric default 0, status text default 'Draft', items jsonb default '[]'::jsonb, created_at timestamp default now());
 create table expenses (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users not null, description text, amount numeric default 0, category text, date text, created_at timestamp default now());
 alter table leads enable row level security;
@@ -240,8 +256,9 @@ create policy "own" on expenses for all using (auth.uid()=user_id) with check (a
       </nav>
       <div class="sidebar-footer">
         <div class="user-pill">
-          <div class="user-avatar" id="user-avatar">?</div>
-          <span class="user-email" id="user-email">loading…</span>
+          <div class="user-avatar" id="user-avatar" style="cursor:pointer" onclick="showUserProfileModal()" title="View profile & settings">?</div>
+          <span class="user-email" id="user-email" style="cursor:pointer" onclick="showUserProfileModal()" title="View profile & settings">loading…</span>
+          <button class="btn btn-sm btn-ghost" onclick="showUserProfileModal()" title="Reset Password / Profile" style="padding:4px 8px;font-size:11px">⚙</button>
           <button class="btn btn-sm btn-ghost" onclick="confirmSignOut()" title="Sign out" style="padding:4px 8px;font-size:11px">↩</button>
         </div>
       </div>
@@ -427,6 +444,56 @@ function toast(msg) {
   setTimeout(() => t.classList.remove('show'), 2800);
 }
 
+// ── Deletion Confirmation Modal ──────────────────
+function confirmDeletion(entityType, entityLabel) {
+  return new Promise((resolve) => {
+    const container = document.getElementById('delete-modal');
+    container.innerHTML = `
+    <div class="del-overlay" id="del-overlay">
+      <div class="del-modal">
+        <h3>⚠ Confirm Deletion</h3>
+        <p>You are about to delete <strong>${sanitize(entityType)}</strong>: <strong>${sanitize(entityLabel)}</strong></p>
+        <div>
+          <label>Reason for deletion *</label>
+          <textarea id="del-reason" placeholder="Enter the reason for deleting this record…"></textarea>
+        </div>
+        <div class="del-actions">
+          <button class="btn-cancel" id="del-cancel-btn">Cancel</button>
+          <button class="btn-del" id="del-confirm-btn" disabled>Delete</button>
+        </div>
+      </div>
+    </div>`;
+    const reasonEl = document.getElementById('del-reason');
+    const confirmBtn = document.getElementById('del-confirm-btn');
+    reasonEl.addEventListener('input', () => {
+      confirmBtn.disabled = reasonEl.value.trim().length < 3;
+    });
+    document.getElementById('del-cancel-btn').addEventListener('click', () => {
+      container.innerHTML = '';
+      resolve(null);
+    });
+    document.getElementById('del-overlay').addEventListener('click', (e) => {
+      if (e.target.id === 'del-overlay') { container.innerHTML = ''; resolve(null); }
+    });
+    confirmBtn.addEventListener('click', () => {
+      const reason = reasonEl.value.trim();
+      container.innerHTML = '';
+      resolve(reason);
+    });
+  });
+}
+
+async function logDeletion(entityType, entityId, entityLabel, reason) {
+  const userName = session?.user?.email || 'unknown';
+  await dbOp(() => sb.from('deletion_logs').insert({
+    table_name: entityType,
+    record_id: String(entityId),
+    deleted_by: userName,
+    reason: reason,
+    user_id: session.user.id
+  }), 'Failed to log deletion');
+}
+
 // ── Sync Status ───────────────────────────────────
 function setSyncStatus(state, label) {
   const el = document.getElementById('sync-status');
@@ -565,6 +632,75 @@ function showAuthMsg(msg, ok = false) {
   el.style.display = 'block';
   el.style.color = ok ? 'var(--accent2)' : 'var(--danger)';
   el.textContent = msg;
+}
+
+function showUserProfileModal() {
+  const container = document.getElementById('delete-modal');
+  container.innerHTML = `
+  <div class="del-overlay" id="user-profile-overlay">
+    <div class="del-modal" style="max-width: 440px;">
+      <h3 style="color:var(--accent);display:flex;align-items:center;gap:6px">⚙ User Settings</h3>
+      <p style="margin-bottom:20px">Logged in as <strong style="color:var(--text)">${sanitize(session?.user?.email || '')}</strong></p>
+      
+      <div style="margin-bottom:16px">
+        <label style="font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">New Password</label>
+        <input type="password" id="up-new-pwd" placeholder="Enter new password (min 6 chars)" style="width:100%;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;margin-bottom:12px">
+        
+        <label style="font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px">Confirm Password</label>
+        <input type="password" id="up-confirm-pwd" placeholder="Confirm new password" style="width:100%;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px">
+        <div class="form-error" id="up-pwd-err" style="margin-top:6px;color:var(--danger);font-size:11px"></div>
+      </div>
+      
+      <div class="del-actions">
+        <button class="btn-cancel" id="up-cancel-btn">Cancel</button>
+        <button class="btn-del" id="up-save-btn" style="background:var(--accent);color:#fff">Update Password</button>
+      </div>
+    </div>
+  </div>`;
+
+  const newPwdEl = document.getElementById('up-new-pwd');
+  const confirmPwdEl = document.getElementById('up-confirm-pwd');
+  const errEl = document.getElementById('up-pwd-err');
+  const saveBtn = document.getElementById('up-save-btn');
+
+  document.getElementById('up-cancel-btn').addEventListener('click', () => {
+    container.innerHTML = '';
+  });
+  document.getElementById('user-profile-overlay').addEventListener('click', (e) => {
+    if (e.target.id === 'user-profile-overlay') container.innerHTML = '';
+  });
+
+  saveBtn.addEventListener('click', async () => {
+    const newPwd = newPwdEl.value;
+    const confirmPwd = confirmPwdEl.value;
+    errEl.textContent = '';
+
+    if (!newPwd || newPwd.length < 6) {
+      errEl.textContent = 'Password must be at least 6 characters long';
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      errEl.textContent = 'Passwords do not match';
+      return;
+    }
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Updating…';
+
+    const { error } = await dbOp(
+      () => sb.auth.updateUser({ password: newPwd }),
+      'Failed to update password'
+    );
+
+    if (error) {
+      errEl.textContent = error.message;
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Update Password';
+    } else {
+      toast('Password updated successfully');
+      container.innerHTML = '';
+    }
+  });
 }
 
 function confirmSignOut() {
@@ -723,9 +859,15 @@ async function moveLead(id, stage) {
 
 async function delLead(id) {
   try {
+    const lead = leads.find(l => l.id === id);
+    const label = lead ? (lead.name || 'Unnamed deal') : 'Deal #' + id;
+    const reason = await confirmDeletion('Deal', label);
+    if (!reason) return;
+    await logDeletion('lead', id, label, reason);
     leads = leads.filter(l => l.id !== id);
     renderPipeline();
     await dbOp(() => sb.from('leads').delete().eq('id', id), 'Failed to delete deal');
+    toast('Deal deleted');
   } catch (err) {
     console.error('Delete lead error:', err);
   }
@@ -849,7 +991,10 @@ function renderContacts() {
           <div style="font-size:11px;color:var(--text3)">POS: ${sanitize(c.place_of_supply) || '—'}</div>
         </td>
         <td style="white-space:nowrap">${onboardStr}</td>
-        <td>${sanitize(c.upi_id) || '—'}</td>
+        <td>
+          <div>${sanitize(c.upi_id) || '—'}</div>
+          ${c.remarks ? `<div style="font-size:10px;color:var(--text3);margin-top:4px;max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${sanitize(c.remarks)}">ⓘ ${sanitize(c.remarks)}</div>` : ''}
+        </td>
         <td style="white-space:nowrap">
           <button class="btn btn-sm" style="border:1px solid var(--border2)" onclick="editContact('${c.id}')">✎ Edit</button>
           <button class="btn btn-sm btn-danger" onclick="delContact('${c.id}')">✕</button>
@@ -981,6 +1126,13 @@ function buildContactForm(contactToEdit = null) {
       </div>
     </div>
 
+    <div class="form-row" style="margin-top:12px">
+      <div class="form-group" style="grid-column: span 2">
+        <label class="form-label">Additional Information / Remarks</label>
+        <textarea id="cf-remarks" placeholder="Enter any remarks, notes, or additional instructions about this customer..." style="width:100%;min-height:60px;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;resize:vertical">${sanitize(c.remarks || '')}</textarea>
+      </div>
+    </div>
+
     <div class="modal-footer">
       <button class="btn" onclick="toggleForm('contact-form')">Cancel</button>
       ${saveBtn}
@@ -1036,11 +1188,6 @@ async function saveContact() {
     }
 
     const gst = document.getElementById('cf-gst').value.trim().toUpperCase();
-    if (gst && !validators.gst(gst)) {
-      showFormError('cf-gst-err', 'Invalid GST format');
-      return;
-    }
-    hideFormError('cf-gst-err');
 
     const pan_no = document.getElementById('cf-pan').value.trim().toUpperCase();
     if (pan_no && !validators.pan(pan_no)) {
@@ -1066,7 +1213,8 @@ async function saveContact() {
       state_code: document.getElementById('cf-scode').value.trim(),
       address: document.getElementById('cf-addr').value.trim(),
       place_of_supply: document.getElementById('cf-pos').value.trim(),
-      upi_id: document.getElementById('cf-upi').value.trim()
+      upi_id: document.getElementById('cf-upi').value.trim(),
+      remarks: document.getElementById('cf-remarks').value.trim()
     };
 
     const { data, error } = await dbOp(
@@ -1125,11 +1273,6 @@ async function updateContact(id) {
     }
 
     const gst = document.getElementById('cf-gst').value.trim().toUpperCase();
-    if (gst && !validators.gst(gst)) {
-      showFormError('cf-gst-err', 'Invalid GST format');
-      return;
-    }
-    hideFormError('cf-gst-err');
 
     const pan_no = document.getElementById('cf-pan').value.trim().toUpperCase();
     if (pan_no && !validators.pan(pan_no)) {
@@ -1154,7 +1297,8 @@ async function updateContact(id) {
       state_code: document.getElementById('cf-scode').value.trim(),
       address: document.getElementById('cf-addr').value.trim(),
       place_of_supply: document.getElementById('cf-pos').value.trim(),
-      upi_id: document.getElementById('cf-upi').value.trim()
+      upi_id: document.getElementById('cf-upi').value.trim(),
+      remarks: document.getElementById('cf-remarks').value.trim()
     };
 
     const { data, error } = await dbOp(
@@ -1175,9 +1319,15 @@ async function updateContact(id) {
 
 async function delContact(id) {
   try {
+    const contact = contacts.find(c => c.id === id);
+    const label = contact ? (contact.name || 'Unnamed contact') : 'Contact #' + id;
+    const reason = await confirmDeletion('Contact', label);
+    if (!reason) return;
+    await logDeletion('contact', id, label, reason);
     contacts = contacts.filter(c => c.id !== id);
     renderContacts();
     await dbOp(() => sb.from('contacts').delete().eq('id', id), 'Failed to delete contact');
+    toast('Contact deleted');
   } catch (err) {
     console.error('Delete contact error:', err);
   }
@@ -1202,7 +1352,7 @@ function renderInvoices() {
       <td>
         ${inv.status !== 'Paid' ? `<button class="btn btn-sm btn-success" onclick="markPaid('${inv.id}')">✓ Mark paid</button>` : ''}
         <button class="btn btn-sm" style="border:1px solid var(--border2)" onclick="editInvoice('${inv.id}')">✎ Edit</button>
-        <button class="btn btn-sm btn-danger" onclick="delInvoice('${inv.id}')">✕</button>
+        ${inv.status === 'Paid' ? `<button class="btn btn-sm btn-danger" disabled style="opacity:0.35;cursor:not-allowed" title="Paid invoices cannot be deleted">✕</button>` : `<button class="btn btn-sm btn-danger" onclick="delInvoice('${inv.id}')">✕</button>`}
       </td>
     </tr>`).join('');
   } catch (err) {
@@ -1440,6 +1590,21 @@ async function saveInvoice(status) {
         toast(`Invoice ${status.toLowerCase()}`);
       }
       currentEditInvoiceId = null;
+
+      // Trigger email if the status is Pending (from clicking "Send invoice")
+      if (status === 'Pending') {
+        const contact = contacts.find(c => c.name.toLowerCase() === client.toLowerCase());
+        if (contact && contact.email) {
+          const subject = encodeURIComponent(`Invoice #${row.number} from ${session?.user?.email || 'StartupCRM User'}`);
+          const body = encodeURIComponent(`Hi ${contact.name},\n\nPlease find details for Invoice #${row.number} below:\n\nInvoice Date: ${row.date}\nTotal Amount Due: INR ${row.total}\n\nThank you for your business!\n\nBest regards,\n${session?.user?.email || 'StartupCRM'}`);
+          const mailtoUrl = `mailto:${contact.email}?subject=${subject}&body=${body}`;
+          window.open(mailtoUrl, '_blank');
+          toast(`Email triggered to ${contact.email}`);
+        } else {
+          toast(`Invoice saved. No contact email found for: ${client}`);
+        }
+      }
+
       toggleForm('invoice-form');
       renderInvoices();
     }
@@ -1461,9 +1626,19 @@ async function markPaid(id) {
 
 async function delInvoice(id) {
   try {
+    const inv = invoices.find(i => i.id === id);
+    if (inv && inv.status === 'Paid') {
+      toast('Cannot delete a paid invoice');
+      return;
+    }
+    const label = inv ? (inv.number || 'Unnamed invoice') : 'Invoice #' + id;
+    const reason = await confirmDeletion('Invoice', label);
+    if (!reason) return;
+    await logDeletion('invoice', id, label, reason);
     invoices = invoices.filter(i => i.id !== id);
     renderInvoices();
     await dbOp(() => sb.from('invoices').delete().eq('id', id), 'Failed to delete invoice');
+    toast('Invoice deleted');
   } catch (err) {
     console.error('Delete invoice error:', err);
   }
@@ -1603,9 +1778,15 @@ async function saveExpense() {
 
 async function delExpense(id) {
   try {
+    const exp = expenses.find(e => e.id === id);
+    const label = exp ? (exp.description || 'Unnamed expense') : 'Expense #' + id;
+    const reason = await confirmDeletion('Expense', label);
+    if (!reason) return;
+    await logDeletion('expense', id, label, reason);
     expenses = expenses.filter(e => e.id !== id);
     renderAccounting();
     await dbOp(() => sb.from('expenses').delete().eq('id', id), 'Failed to delete expense');
+    toast('Expense deleted');
   } catch (err) {
     console.error('Delete expense error:', err);
   }
