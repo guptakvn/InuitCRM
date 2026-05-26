@@ -337,9 +337,7 @@ create policy "own" on expenses for all using (auth.uid()=user_id) with check (a
   </div>
 </div>
 
-<script type="module">
-import './src/app.js';
-// App logic moved to src/app.js
+<script>
 // ════════════════════════════════════════════════════
 const CONFIG = {
   SUPABASE_URL: 'https://qcuzvatlfwsvjxuidpao.supabase.co',
@@ -1643,6 +1641,36 @@ async function delInvoice(id) {
   }
 }
 
+function renderAccounting() {
+  try {
+    const income = invoices.filter(i => i.status === 'Paid').reduce((a, i) => a + (i.total || 0), 0);
+    const expense = expenses.reduce((a, e) => a + (e.amount || 0), 0);
+    const gst = invoices.filter(i => i.status === 'Paid').reduce((a, i) => a + (i.gst_amt || 0), 0);
+    const profit = income - expense;
+
+    document.getElementById('acc-inc').textContent = inr(income);
+    document.getElementById('acc-exp').textContent = inr(expense);
+    document.getElementById('acc-profit').textContent = inr(profit);
+    document.getElementById('acc-profit').style.color = profit >= 0 ? 'var(--accent2)' : 'var(--danger)';
+    document.getElementById('acc-gst2').textContent = inr(gst);
+
+    const tbody = document.getElementById('expenses-body');
+    if (!expenses.length) {
+      tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state">No expenses yet</div></td></tr>`;
+    } else {
+      tbody.innerHTML = expenses.map(e => `<tr>
+        <td>${e.date}</td>
+        <td>
+          <div style="font-weight:500">${sanitize(e.description)}</div>
+          ${e.paid_to ? `<div style="font-size:10px;color:var(--text3)">Paid to: ${sanitize(e.paid_to)}</div>` : ''}
+        </td>
+        <td><span class="badge badge-new">${sanitize(e.category)}</span></td>
+        <td style="font-family:'DM Mono',monospace;font-weight:500">${inr(e.amount)}</td>
+        <td>
+          <button class="btn btn-sm btn-danger" onclick="delExpense('${e.id}')">x</button>
+        </td>
+      </tr>`).join('');
+    }
 
     const cats = {};
     expenses.forEach(e => {
@@ -1803,7 +1831,7 @@ async function delExpense(id) {
     console.error('Delete expense error:', err);
   }
 }
-<div id="expense-details"></div>
+
 // ── Export ────────────────────────────────────────
 function exportData() {
   try {
