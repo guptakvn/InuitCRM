@@ -1677,7 +1677,8 @@ function buildInvoiceForm(invoiceToEdit = null) {
     <div id="inv-totals-preview" class="gst-block"></div>
     <div class="modal-footer">
       <button class="btn" onclick="toggleForm('invoice-form')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveInvoice('${defStatus}')">${invoiceToEdit ? 'Save changes' : 'Book invoice'}</button>
+      <button class="btn" onclick="saveInvoice('${defStatus}')">${invoiceToEdit ? 'Save changes' : 'Book invoice'}</button>
+      ${defStatus !== 'Paid' ? `<button class="btn btn-primary" onclick="saveInvoice('Awaiting Payment')">${defStatus === 'Awaiting Payment' ? 'Resend invoice' : 'Send invoice'}</button>` : ''}
     </div>
   </div></div>`;
   
@@ -1866,6 +1867,26 @@ async function rollbackStockDeltas(deltas) {
   }
 }
 
+function emailInvoiceToContact(invoice) {
+  const contact = contacts.find(c =>
+    (c.name || '').toLowerCase() === (invoice.client || '').toLowerCase() ||
+    (c.company || '').toLowerCase() === (invoice.client || '').toLowerCase()
+  );
+
+  if (!contact || !contact.email) {
+    toast(`Invoice saved. No contact email found for: ${invoice.client}`);
+    return;
+  }
+
+  const itemLines = (invoice.items || [])
+    .map(item => `- ${item.desc}: ${item.qty} pcs x INR ${item.rate} = INR ${item.amt}`)
+    .join('\n');
+  const subject = encodeURIComponent(`Invoice #${invoice.number} from ${session?.user?.email || 'StartupCRM User'}`);
+  const body = encodeURIComponent(`Hi ${contact.name || invoice.client},\n\nPlease find details for Invoice #${invoice.number} below:\n\nInvoice Date: ${invoice.date}\n\n${itemLines}\n\nSubtotal: INR ${invoice.subtotal}\nGST: INR ${invoice.gst_amt}\nTotal Amount Due: INR ${invoice.total}\n\nThank you for your business!\n\nBest regards,\n${session?.user?.email || 'StartupCRM'}`);
+  window.open(`mailto:${contact.email}?subject=${subject}&body=${body}`, '_blank');
+  toast(`Email triggered to ${contact.email}`);
+}
+
 async function saveInvoice(status) {
   try {
     const client = document.getElementById('if-client').value.trim();
@@ -1968,16 +1989,7 @@ async function saveInvoice(status) {
       currentEditInvoiceId = null;
 
       if (status === 'Awaiting Payment') {
-        const contact = contacts.find(c => c.name.toLowerCase() === client.toLowerCase());
-        if (contact && contact.email) {
-          const subject = encodeURIComponent(`Invoice #${row.number} from ${session?.user?.email || 'StartupCRM User'}`);
-          const body = encodeURIComponent(`Hi ${contact.name},\n\nPlease find details for Invoice #${row.number} below:\n\nInvoice Date: ${row.date}\nTotal Amount Due: INR ${row.total}\n\nThank you for your business!\n\nBest regards,\n${session?.user?.email || 'StartupCRM'}`);
-          const mailtoUrl = `mailto:${contact.email}?subject=${subject}&body=${body}`;
-          window.open(mailtoUrl, '_blank');
-          toast(`Email triggered to ${contact.email}`);
-        } else {
-          toast(`Invoice saved. No contact email found for: ${client}`);
-        }
+        emailInvoiceToContact(data || row);
       }
 
       toggleForm('invoice-form');
@@ -2235,6 +2247,7 @@ async function saveExpense() {
     if (!purpose) return showFormError('ef-purpose-err', 'Required');
 
     const row = {
+      user_id: session.user.id,
       description: desc,
       paid_to: paidTo,
       category: document.getElementById('ef-cat').value,
@@ -2251,8 +2264,9 @@ async function saveExpense() {
     );
 
     if (!res.error) {
-      expenses.unshift(res.data);
+      expenses.unshift(res.data || { ...row, id: 'local-expense-' + Date.now() });
       renderAccounting();
+      renderDashboard();
       toggleForm('expense-form');
       toast('Expense saved');
     }
